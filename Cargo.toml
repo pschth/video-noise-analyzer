@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 slint = "1.12.1"
 futures = { version = "0.3.28" }
+thiserror = "2.0.17"
+v4l = "0.14"
 
 gst = { package = "gstreamer", version = "0.23.0" }
 gst-audio = { package = "gstreamer-audio", version = "0.23.0" }
