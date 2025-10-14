@@ -1,0 +1,104 @@
+import { Button, ScrollView, ComboBox} from "std-widgets.slint";
+import { Styles } from "styles.slint";
+import { Logic } from "logic.slint";
+
+component VideoText inherits Text {
+    text: "example text";
+    font-size: 12px;
+    font-weight: 600;
+    color: Styles.video_color;
+}
+
+component VideoButton inherits Rectangle {
+
+    in property <string> text;
+    out property <bool> playing: false;
+
+    callback clicked;
+
+    width: Math.max(content.width + Styles.padding * 2, 100px);
+    height: content.height + Styles.padding * 2;
+    border-radius: 8px;
+    background: Styles.video_gradient;
+    border-width: ta.has-hover ? 2px : 1px;
+    border-color: Styles.video_color;
+
+    content := VideoText {
+        text: text;
+        font-weight: ta.has-hover ? 1000 : 600;
+    }
+
+    ta := TouchArea {
+        clicked => root.clicked();
+    }
+}
+
+component VideoComboBox inherits Window {
+    background: transparent;
+
+    in property <[string]> options: ["first", "second", "third"];
+    ComboBox {
+        model: options;
+        current-value: options[0];
+    }
+}
+
+export component VideoWindow inherits Rectangle {
+    min-width: 640px;
+    min-height: 360px;
+    border-radius: 8px;
+    background: transparent;
+    border-width: 1px;
+    border-color: Styles.video_color;
+
+    in property <int> buffering_percent;
+    Image {
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source: @image-url("cat.jpg");
+    }
+
+    Text {
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        font-size: 24px;
+        font-weight: 800;
+        color: Styles.video_color;
+        text: buffering_percent > 0 ? "Buffering " + buffering_percent + "%" : "No video";
+    }
+}
+
+export component VideoControls inherits Window {
+
+    in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
+
+    HorizontalLayout {
+        HorizontalLayout {
+            alignment: start;
+            spacing: 5px;
+            play_button := VideoButton {
+                text: Logic.playing ? "Pause" : "Play";
+                clicked => Logic.toggle-pause-play();
+            }
+
+            screenshot_button := VideoButton {
+                text: "Screenshot";
+            }
+        }
+
+        HorizontalLayout {
+            alignment: end;
+            spacing: 5px;
+            VideoText {
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: "Select video source:";
+            }
+
+            VideoComboBox {
+                options: root.video_sources;
+            }
+        }
+    }
+}

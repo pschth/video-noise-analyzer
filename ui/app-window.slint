@@ -1,0 +1,27 @@
+import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
+import { VideoWindow, VideoControls } from "video-controls.slint";
+import { Logic } from "logic.slint";
+
+export component App inherits Window {
+
+    in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
+    in property <int> buffering_percent: 0;
+
+    preferred-width: 640px;
+    preferred-height: 480px;
+    min-width: 640px;
+    min-height: 100px;
+    title: "SOCOS Image Analyzer";
+    background: #BBBBBBFF;
+
+    VerticalLayout {
+        spacing: 5px;
+        VideoWindow {
+            buffering_percent: root.buffering_percent;
+        }
+
+        VideoControls {
+            video_sources: root.video_sources;
+        }
+    }
+}
