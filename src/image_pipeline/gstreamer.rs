@@ -1,5 +1,13 @@
-use gst::prelude::*;
+use std::{
+    sync::{atomic::AtomicBool, Arc},
+    thread::JoinHandle,
+    time::Duration,
+};
+
+use futures::lock::Mutex;
+use gst::{debug, prelude::*, Sample};
 use thiserror::Error;
+use v4l::video::output;
 
 #[derive(Debug, Error)]
 pub enum GstError {
@@ -28,6 +36,16 @@ pub struct DeviceCapabilities {
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
     caps: Vec<DeviceCapabilities>,
+    output_sample: Arc<Mutex<Option<Sample>>>,
+    shutdown_flag: Arc<AtomicBool>,
+}
+
+impl Drop for ImagePipeline {
+    fn drop(&mut self) {
+        self.shutdown_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.pipeline.set_state(gst::State::Null).unwrap();
+    }
 }
 
 impl ImagePipeline {
@@ -104,22 +122,54 @@ impl ImagePipeline {
             }
         };
 
-        let sink = match gst::ElementFactory::make("autovideosink").build() {
-            Ok(element) => element,
-            Err(_) => {
-                eprintln!("Could not create autovideosink element.");
-                return Err(GstError::ElementNotFound);
-            }
-        };
+        let sink = gst_app::AppSink::builder().build();
+        sink.set_property("emit-signals", true);
+        let sink: gst::Element = sink.upcast();
 
         let pipeline = gst::Pipeline::new();
         pipeline.add_many([&source, &capsfilter, &decoder, &convert, &sink])?;
         gst::Element::link_many([&source, &capsfilter, &decoder, &convert, &sink])?;
 
-        Ok(Self {
+        // spawn a thread to pull samples from the appsink
+        let output_sample: Arc<Mutex<Option<Sample>>> = Arc::new(Mutex::new(None));
+        let sample = output_sample.clone();
+        let shutdown_flag = Arc::new(AtomicBool::new(false));
+        let shutdown = shutdown_flag.clone();
+        std::thread::spawn(move || {
+            let appsink = sink.downcast_ref::<gst_app::AppSink>().unwrap();
+            while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+                if let Ok(s) = appsink.pull_sample() {
+                    println!("Pulled sample from appsink");
+                    let Some(mut sample) = sample.try_lock() else {
+                        println!("Could not lock output_sample mutex");
+                        continue;
+                    };
+                    sample.replace(s);
+                };
+            }
+        });
+
+        Ok(ImagePipeline {
             pipeline,
             caps: device_caps,
+            output_sample,
+            shutdown_flag,
         })
+    }
+
+    pub fn print_sample_info(&self) {
+        let sample = self.output_sample.try_lock();
+        if let Some(s) = sample {
+            let Some(sample) = s.as_ref() else {
+                println!("No sample available");
+                return;
+            };
+            let buffer = sample.buffer().unwrap();
+            let map = buffer.map_readable().unwrap();
+            println!("Sample size: {}", map.size());
+        } else {
+            println!("No sample available");
+        }
     }
 
     /// sets the pipeline to the given state
