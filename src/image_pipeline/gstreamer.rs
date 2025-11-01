@@ -1,13 +1,14 @@
 use std::{
-    sync::{atomic::AtomicBool, Arc},
-    thread::JoinHandle,
+    fmt::Display,
+    sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
 
 use futures::lock::Mutex;
-use gst::{debug, prelude::*, Sample};
+use gst::{prelude::*, BufferMap, Sample};
+use gst_app::AppSink;
+use gst_video::video_codec_state::Readable;
 use thiserror::Error;
-use v4l::video::output;
 
 #[derive(Debug, Error)]
 pub enum GstError {
@@ -29,15 +30,24 @@ pub struct DeviceCapabilities {
     width: i32,
     height: i32,
     framerate: gst::List,
-    format: String,
     device_path: String,
+}
+
+impl Display for DeviceCapabilities {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "video/x-raw, Resolution: {}x{}, Framerates: {:?}, Device Path: {}",
+            self.width, self.height, self.framerate, self.device_path,
+        )
+    }
 }
 
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
     caps: Vec<DeviceCapabilities>,
-    output_sample: Arc<Mutex<Option<Sample>>>,
-    shutdown_flag: Arc<AtomicBool>,
+    sample_rx: mpsc::Receiver<Sample>,
+    shutdown_flag: AtomicBool,
 }
 
 impl Drop for ImagePipeline {
@@ -51,125 +61,117 @@ impl Drop for ImagePipeline {
 impl ImagePipeline {
     pub fn new() -> Result<Self, GstError> {
         gst::init()?;
-        let device_caps = Self::get_source_caps();
+        let device_caps = Self::get_raw_source_caps();
         if device_caps.is_empty() {
             return Err(GstError::NoCapsFound);
         }
 
         // create source element
-        let source = match gst::ElementFactory::make("v4l2src").name("source").build() {
-            Ok(element) => element,
-            Err(_) => {
-                eprintln!(
-                    "Could not create v4l2src element. Make sure the v4l2 plugin is installed."
-                );
-                return Err(GstError::ElementNotFound);
-            }
-        };
+        let source = gst::ElementFactory::make("v4l2src")
+            .name("source")
+            .build()
+            .expect("Could not create v4l2src element. Make sure the v4l2 plugin is installed.");
         source.set_property("device", &device_caps[0].device_path);
 
         // set video capabilities to the first available capability
-        let framerate = match device_caps
+        let framerate = device_caps
             .first()
             .unwrap()
             .framerate
             .first()
             .and_then(|v| v.get::<gst::Fraction>().ok())
-        {
-            Some(fr) => fr,
-            None => {
-                eprintln!("Could not get framerate from device capabilities.");
-                return Err(GstError::NoCapsFound);
-            }
-        };
-        let caps = gst::Caps::builder("image/jpeg")
+            .expect("Could not get framerate from device capabilities.");
+
+        let caps = gst::Caps::builder("video/x-raw")
             .field("width", device_caps.first().unwrap().width)
             .field("height", device_caps.first().unwrap().height)
             .field("framerate", framerate)
             .build();
 
-        let capsfilter = match gst::ElementFactory::make("capsfilter")
+        let capsfilter = gst::ElementFactory::make("capsfilter")
             .name("filter")
             .build()
-        {
-            Ok(element) => element,
-            Err(_) => {
-                eprintln!("Could not create capsfilter element.");
-                return Err(GstError::ElementNotFound);
-            }
-        };
+            .expect("Could not create capsfilter element.");
         capsfilter.set_property("caps", &caps);
 
-        // set up the rest of the pipeline
-        let decoder = match gst::ElementFactory::make("jpegdec").name("decoder").build() {
-            Ok(element) => element,
-            Err(_) => {
-                eprintln!(
-                    "Could not create jpegdec element. Make sure the jpeg plugin is installed."
-                );
-                return Err(GstError::ElementNotFound);
-            }
-        };
-
-        let convert = match gst::ElementFactory::make("videoconvert")
+        // add convert element to convert to RGB
+        let convert = gst::ElementFactory::make("videoconvert")
             .name("convert")
             .build()
-        {
-            Ok(element) => element,
-            Err(_) => {
-                eprintln!("Could not create videoconvert element.");
-                return Err(GstError::ElementNotFound);
-            }
-        };
+            .expect("Could not create videoconvert element.");
 
+        // capsfilter to enforce RGB format in converted output
+        let rgb_caps = gst::Caps::builder("video/x-raw")
+            .field("format", "RGB")
+            .build();
+
+        let rgb_filter = gst::ElementFactory::make("capsfilter")
+            .name("rgb_filter")
+            .build()
+            .expect("Could not create rgb capsfilter element.");
+        rgb_filter.set_property("caps", &rgb_caps);
+
+        // create appsink element to retrieve frames
         let sink = gst_app::AppSink::builder().build();
+        // configure appsink to emit a signal when a new sample is ready
         sink.set_property("emit-signals", true);
-        let sink: gst::Element = sink.upcast();
+        // set callback to send new samples through channel to ImagePipeline object
+        let (sample_tx, sample_rx) = mpsc::channel::<Sample>();
+        sink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |appsink| {
+                    let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
+                    sample_tx
+                        .send(sample)
+                        .expect("Failed to send sample through channel");
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
 
+        // build the pipeline
         let pipeline = gst::Pipeline::new();
-        pipeline.add_many([&source, &capsfilter, &decoder, &convert, &sink])?;
-        gst::Element::link_many([&source, &capsfilter, &decoder, &convert, &sink])?;
-
-        // spawn a thread to pull samples from the appsink
-        let output_sample: Arc<Mutex<Option<Sample>>> = Arc::new(Mutex::new(None));
-        let sample = output_sample.clone();
-        let shutdown_flag = Arc::new(AtomicBool::new(false));
-        let shutdown = shutdown_flag.clone();
-        std::thread::spawn(move || {
-            let appsink = sink.downcast_ref::<gst_app::AppSink>().unwrap();
-            while !shutdown.load(std::sync::atomic::Ordering::Relaxed) {
-                if let Ok(s) = appsink.pull_sample() {
-                    println!("Pulled sample from appsink");
-                    let Some(mut sample) = sample.try_lock() else {
-                        println!("Could not lock output_sample mutex");
-                        continue;
-                    };
-                    sample.replace(s);
-                };
-            }
-        });
+        let sink: gst::Element = sink.upcast();
+        pipeline.add_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
+        gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
 
         Ok(ImagePipeline {
             pipeline,
             caps: device_caps,
-            output_sample,
-            shutdown_flag,
+            sample_rx,
+            shutdown_flag: AtomicBool::new(false),
         })
     }
 
-    pub fn print_sample_info(&self) {
-        let sample = self.output_sample.try_lock();
-        if let Some(s) = sample {
-            let Some(sample) = s.as_ref() else {
-                println!("No sample available");
-                return;
-            };
-            let buffer = sample.buffer().unwrap();
-            let map = buffer.map_readable().unwrap();
-            println!("Sample size: {}", map.size());
-        } else {
-            println!("No sample available");
+    pub fn get_sample(&self) -> Option<Sample> {
+        match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(sample) => Some(sample),
+            Err(_) => {
+                println!("No sample received within 1 second.");
+                None
+            }
         }
+
+        // let sample = match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
+        //     Ok(sample) => Some(sample),
+        //     Err(_) => {
+        //         println!("No sample received within 1 second.");
+        //         None
+        //     }
+        // }?;
+
+        // let buffer = sample.buffer().expect("Failed to get buffer from sample");
+        // let map = buffer
+        //     .map_readable()
+        //     .expect("Failed to map buffer readable");
+        // let data = map.as_slice();
+        // let data_rms = data.iter().map(|&b| (b as f64).powi(2)).sum::<f64>() / data.len() as f64;
+        // println!(
+        //     "Sample rms: {data_rms}, slice length: {}, map size: {}",
+        //     data.len(),
+        //     map.size()
+        // );
+        // None
     }
 
     /// sets the pipeline to the given state
@@ -191,7 +193,7 @@ impl ImagePipeline {
             .ok_or(GstError::ElementNotFound)?
             .set_property("device", &device_cap.device_path);
 
-        let caps = gst::Caps::builder(&device_cap.format)
+        let caps = gst::Caps::builder("video/x-raw")
             .field("width", device_cap.width)
             .field("height", device_cap.height)
             .field("framerate", &device_cap.framerate)
@@ -209,8 +211,12 @@ impl ImagePipeline {
         self.pipeline.bus()
     }
 
-    /// Queries all available v4l2 video source devices and their capabilities.
-    fn get_source_caps() -> Vec<DeviceCapabilities> {
+    pub fn get_device_capabilities(&self) -> &Vec<DeviceCapabilities> {
+        &self.caps
+    }
+
+    /// Queries all available v4l2 video source devices and their raw capabilities.
+    fn get_raw_source_caps() -> Vec<DeviceCapabilities> {
         let mut device_caps: Vec<DeviceCapabilities> = vec![];
 
         // device monitor to list video sources
@@ -236,12 +242,14 @@ impl ImagePipeline {
                 Ok(path) => path,
             };
 
-            println!("Device: {display_name}, device path: {device_path}");
-
             // print supported caps
             if let Some(caps_list) = device.caps() {
                 println!("Available v4l2 caps:");
                 for caps in caps_list.iter() {
+                    if caps.name() != "video/x-raw" {
+                        continue;
+                    }
+
                     let width = caps.get::<i32>("width");
                     let height = caps.get::<i32>("height");
                     let framerate = caps.get::<gst::List>("framerate");
@@ -251,13 +259,11 @@ impl ImagePipeline {
                             width,
                             height,
                             framerate,
-                            format: caps.name().to_string(),
                             device_path: device_path.clone(),
                         };
-                        println!("  {device_cap:?}");
                         device_caps.push(device_cap);
                     } else {
-                        println!("  Could not get width/height/framerate for caps: {caps:?}");
+                        println!("  Could not get width/height/framerate/image_format for caps: {caps:?}");
                     }
                 }
             } else {

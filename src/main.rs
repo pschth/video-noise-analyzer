@@ -13,19 +13,34 @@ slint::slint! {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // let ui = App::new()?;
+
     let pipeline = ImagePipeline::new().expect("Failed to create image pipeline");
 
     pipeline
         .set_state(gst::State::Playing)
         .expect("Unable to set the pipeline to the `Playing` state");
 
-    let pipeline = Arc::new(pipeline);
+    // let pipeline = Arc::new(pipeline);
 
-    let bus = pipeline.get_bus().expect("Pipeline without bus");
+    let caps = pipeline.get_device_capabilities();
+    for (idx, cap) in caps.iter().enumerate() {
+        println!("Device cap {idx}: {cap}");
+    }
 
-    for _ in 0..100 {
-        pipeline.print_sample_info();
-        std::thread::sleep(std::time::Duration::from_millis(10));
+    // let bus = pipeline.get_bus().expect("Pipeline without bus");
+
+    let mut total_time = Duration::ZERO;
+    let mut avg_time = Duration::ZERO;
+    for i in 0..100 {
+        let time_start = std::time::SystemTime::now();
+        pipeline.get_sample();
+        let elapsed = time_start.elapsed().unwrap();
+        if i > 1 {
+            total_time += elapsed;
+            avg_time = total_time / (i - 1);
+        }
+        println!("Time elapsed for querying frame: {elapsed:?}, average so far: {avg_time:?}");
     }
 
     // for msg in bus.iter_timed(gst::ClockTime::NONE) {
