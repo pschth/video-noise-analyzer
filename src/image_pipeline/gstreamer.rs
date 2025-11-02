@@ -1,7 +1,7 @@
-use std::{fmt::Display, sync::atomic::AtomicBool, time::Duration};
+use std::{fmt::Display, sync::atomic::AtomicBool};
 
 use gst::{prelude::*, State};
-use slint::{ComponentHandle, Weak};
+use slint::Weak;
 use thiserror::Error;
 
 use crate::{image_pipeline::frame_handler::FrameHandler, App};

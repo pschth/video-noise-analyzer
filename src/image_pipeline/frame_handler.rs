@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use gst::{
-    glib::{clone, object::Cast},
-    prelude::{ElementExt, GstBinExt},
-};
+use gst::{glib::object::Cast, prelude::GstBinExt};
 use slint::{Image, Weak};
 
 use crate::App;
