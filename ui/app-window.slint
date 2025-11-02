@@ -1,11 +1,12 @@
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
-import { VideoWindow, VideoControls } from "video-controls.slint";
+import { VideoControls } from "video-controls.slint";
+import { VideoWindow } from "video-window.slint";
 import { Logic } from "logic.slint";
 
 export component App inherits Window {
 
     in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
-    in property <int> buffering_percent: 0;
+    in property <image> video-frame <=> image.video-frame;
 
     preferred-width: 640px;
     preferred-height: 480px;
@@ -16,9 +17,7 @@ export component App inherits Window {
 
     VerticalLayout {
         spacing: 5px;
-        VideoWindow {
-            buffering_percent: root.buffering_percent;
-        }
+        image := VideoWindow { }
 
         VideoControls {
             video_sources: root.video_sources;

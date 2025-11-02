@@ -1,4 +1,4 @@
-import { Button, ScrollView, ComboBox} from "std-widgets.slint";
+import { Button, ScrollView, ComboBox } from "std-widgets.slint";
 import { Styles } from "styles.slint";
 import { Logic } from "logic.slint";
 
@@ -40,32 +40,6 @@ component VideoComboBox inherits Window {
     ComboBox {
         model: options;
         current-value: options[0];
-    }
-}
-
-export component VideoWindow inherits Rectangle {
-    min-width: 640px;
-    min-height: 360px;
-    border-radius: 8px;
-    background: transparent;
-    border-width: 1px;
-    border-color: Styles.video_color;
-
-    in property <int> buffering_percent;
-    Image {
-        width: parent.width;
-        height: parent.height;
-        image-fit: contain;
-        source: @image-url("cat.jpg");
-    }
-
-    Text {
-        horizontal-alignment: center;
-        vertical-alignment: center;
-        font-size: 24px;
-        font-weight: 800;
-        color: Styles.video_color;
-        text: buffering_percent > 0 ? "Buffering " + buffering_percent + "%" : "No video";
     }
 }
 

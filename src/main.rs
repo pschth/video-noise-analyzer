@@ -1,6 +1,8 @@
 mod image_pipeline;
 
+use gst::ffi::GstPipelineClass;
 use gst::{prelude::*, MessageView};
+use slint::Image;
 use std::error::Error;
 use std::sync::Arc;
 use std::time::Duration;
@@ -13,8 +15,6 @@ slint::slint! {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // let ui = App::new()?;
-
     let pipeline = ImagePipeline::new().expect("Failed to create image pipeline");
 
     pipeline
@@ -29,19 +29,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // let bus = pipeline.get_bus().expect("Pipeline without bus");
-
-    let mut total_time = Duration::ZERO;
-    let mut avg_time = Duration::ZERO;
-    for i in 0..100 {
-        let time_start = std::time::SystemTime::now();
-        pipeline.get_sample();
-        let elapsed = time_start.elapsed().unwrap();
-        if i > 1 {
-            total_time += elapsed;
-            avg_time = total_time / (i - 1);
-        }
-        println!("Time elapsed for querying frame: {elapsed:?}, average so far: {avg_time:?}");
-    }
 
     // for msg in bus.iter_timed(gst::ClockTime::NONE) {
     //     match msg.view() {
@@ -61,6 +48,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     //         _ => {}
     //     }
     // }
+
+    let ui = App::new()?;
+
+    let new_frame_callback = |app: App, new_frame| {
+        app.set_video_frame(new_frame);
+    };
+    pipeline
+        .register_frame_callback(&ui, new_frame_callback)
+        .expect("Failed to register new frame callback");
+
+    ui.run()?;
+    println!("UI has exited.");
+
+    let _ = pipeline.set_state(gst::State::Null);
 
     Ok(())
 }

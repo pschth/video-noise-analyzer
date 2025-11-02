@@ -1,5 +1,6 @@
 use std::{
     fmt::Display,
+    os::unix::raw::uid_t,
     sync::{atomic::AtomicBool, mpsc, Arc},
     time::Duration,
 };
@@ -8,6 +9,7 @@ use futures::lock::Mutex;
 use gst::{prelude::*, BufferMap, Sample};
 use gst_app::AppSink;
 use gst_video::video_codec_state::Readable;
+use slint::{Image, Rgb8Pixel, SharedPixelBuffer};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -48,6 +50,10 @@ pub struct ImagePipeline {
     caps: Vec<DeviceCapabilities>,
     sample_rx: mpsc::Receiver<Sample>,
     shutdown_flag: AtomicBool,
+}
+
+unsafe impl Sync for ImagePipeline {
+    // TODO: ensure this is safe
 }
 
 impl Drop for ImagePipeline {
@@ -143,35 +149,54 @@ impl ImagePipeline {
         })
     }
 
-    pub fn get_sample(&self) -> Option<Sample> {
-        match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(sample) => Some(sample),
-            Err(_) => {
-                println!("No sample received within 1 second.");
-                None
-            }
-        }
+    pub fn register_frame_callback<App: slint::ComponentHandle + 'static>(
+        &self,
+        ui: &App,
+        new_frame_cb: fn(App, Image),
+    ) -> Result<(), ()> {
+        let sink = self
+            .pipeline
+            .by_name("appsink0")
+            .expect("Could not find appsink element in pipeline.")
+            .downcast::<AppSink>()
+            .expect("Element is not an AppSink");
 
-        // let sample = match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
-        //     Ok(sample) => Some(sample),
-        //     Err(_) => {
-        //         println!("No sample received within 1 second.");
-        //         None
-        //     }
-        // }?;
+        let ui_weak = ui.as_weak();
+        sink.set_callbacks(
+            gst_app::AppSinkCallbacks::builder()
+                .new_sample(move |appsink| {
+                    let Ok(sample) = appsink.pull_sample() else {
+                        println!("Failed to pull sample from appsink.");
+                        return Err(gst::FlowError::Eos);
+                    };
 
-        // let buffer = sample.buffer().expect("Failed to get buffer from sample");
-        // let map = buffer
-        //     .map_readable()
-        //     .expect("Failed to map buffer readable");
-        // let data = map.as_slice();
-        // let data_rms = data.iter().map(|&b| (b as f64).powi(2)).sum::<f64>() / data.len() as f64;
-        // println!(
-        //     "Sample rms: {data_rms}, slice length: {}, map size: {}",
-        //     data.len(),
-        //     map.size()
-        // );
-        // None
+                    let Some(buffer) = sample.buffer() else {
+                        println!("Sample has no buffer.");
+                        return Err(gst::FlowError::Error);
+                    };
+                    let Ok(map) = buffer.map_readable() else {
+                        println!("Failed to map buffer readable.");
+                        return Err(gst::FlowError::Error);
+                    };
+                    let data = map.as_slice();
+
+                    // Create an Image from the raw RGB data
+                    let video_info =
+                        gst_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
+                    let pixel_buffer = SharedPixelBuffer::<Rgb8Pixel>::clone_from_slice(
+                        data,
+                        video_info.width(),
+                        video_info.height(),
+                    );
+
+                    ui_weak.upgrade_in_event_loop(move |ui| {
+                        new_frame_cb(ui, Image::from_rgb8(pixel_buffer));
+                    });
+                    Ok(gst::FlowSuccess::Ok)
+                })
+                .build(),
+        );
+        Ok(())
     }
 
     /// sets the pipeline to the given state
@@ -213,6 +238,16 @@ impl ImagePipeline {
 
     pub fn get_device_capabilities(&self) -> &Vec<DeviceCapabilities> {
         &self.caps
+    }
+
+    fn get_sample(&self) -> Option<Sample> {
+        match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(sample) => Some(sample),
+            Err(_) => {
+                println!("No sample received within 1 second.");
+                None
+            }
+        }
     }
 
     /// Queries all available v4l2 video source devices and their raw capabilities.

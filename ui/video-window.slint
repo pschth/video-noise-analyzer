@@ -1,0 +1,19 @@
+import { Styles } from "styles.slint";
+
+export component VideoWindow inherits Rectangle {
+    min-width: 640px;
+    min-height: 360px;
+    border-radius: 8px;
+    background: transparent;
+    border-width: 1px;
+    border-color: Styles.video_color;
+
+    in property <int> buffering_percent;
+    in property <image> video-frame <=> image.source;
+    image := Image {
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source: @image-url("cat.jpg");
+    }
+}
