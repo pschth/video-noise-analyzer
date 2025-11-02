@@ -1,7 +1,7 @@
-use std::{fmt::Display, sync::atomic::AtomicBool};
+use std::{fmt::Display, sync::atomic::AtomicBool, time::Duration};
 
 use gst::{prelude::*, State};
-use slint::Weak;
+use slint::{ComponentHandle, Weak};
 use thiserror::Error;
 
 use crate::{image_pipeline::frame_handler::FrameHandler, App};
@@ -41,6 +41,7 @@ impl Display for DeviceCapabilities {
 
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
+    frame_handler: FrameHandler,
     caps: Vec<DeviceCapabilities>,
     shutdown_flag: AtomicBool,
     gui: Weak<App>,
@@ -118,20 +119,21 @@ impl ImagePipeline {
         pipeline.add_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
         gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
 
+        // link the video controls and the frame window to the image pipeline
+        let frame_handler = ImagePipeline::link_with_gui(&pipeline, &ui);
+
         let img_pipeline = ImagePipeline {
             pipeline,
             caps: device_caps,
+            frame_handler,
             shutdown_flag: AtomicBool::new(false),
             gui: ui,
         };
 
-        // link the video controls and the frame window to the image pipeline
-        img_pipeline.link_with_gui();
-
-        // set image pipeline to playing state if possible
+        // set image pipeline to pause state if possible
         img_pipeline
-            .set_state(State::Playing)
-            .expect("Could not set pipeline into playing state.");
+            .set_state(State::Paused)
+            .expect("Could not set pipeline into pause state.");
 
         Ok(img_pipeline)
     }
@@ -141,39 +143,49 @@ impl ImagePipeline {
         &self,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        match self.pipeline.set_state(state) {
-            Ok(_) => {
-                let ui = self.gui.upgrade().expect("Could not upgrade UI.");
-                match state {
-                    State::Playing => ui.set_playing(true),
-                    _ => ui.set_playing(false),
-                };
-                Ok(gst::StateChangeSuccess::Success)
-            }
-            Err(_) => Err(gst::StateChangeError),
-        }
+        Self::set_state_cb(&self.pipeline, &self.gui, &self.frame_handler, state)
     }
 
     pub fn set_state_cb(
         pipeline: &gst::Pipeline,
+        ui: &Weak<App>,
+        frame_handler: &FrameHandler,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        pipeline.set_state(state)
+        match pipeline.set_state(state) {
+            Ok(r) => {
+                let ui = ui.upgrade().expect("Could not upgrade UI.");
+                match state {
+                    State::Playing => ui.set_playing(true),
+                    _ => {
+                        ui.set_playing(false);
+                        frame_handler.display_pause_image();
+                    }
+                };
+                Ok(r)
+            }
+            Err(r) => {
+                println!("Failed to set state");
+                Err(r)
+            }
+        }
     }
 
-    fn link_with_gui(&self) {
+    fn link_with_gui(pipeline: &gst::Pipeline, gui: &Weak<App>) -> FrameHandler {
         // set up link of image pipeline output frames to GUI
-        FrameHandler::init(&self.pipeline, self.gui.clone());
+        let fh = FrameHandler::init(&pipeline, gui.clone());
 
         // set up link of image pipeline video controls to GUI
-        let pipeline = self.pipeline.clone();
-        let gui_cb = self.gui.clone();
-        self.gui
-            .upgrade()
+        let pipeline = pipeline.clone();
+        let gui_cb = gui.clone();
+        let fh_cb = fh.clone();
+        gui.upgrade()
             .expect("Could not upgrade UI.")
             .on_toggle_play_pause(move || {
-                Self::toggle_play_pause(&pipeline, &gui_cb);
+                Self::toggle_play_pause(&pipeline, &gui_cb, &fh_cb);
             });
+
+        fh
     }
 
     fn get_current_state(pipeline: &gst::Pipeline) -> State {
@@ -185,23 +197,17 @@ impl ImagePipeline {
         state
     }
 
-    fn toggle_play_pause(pipeline: &gst::Pipeline, ui: &Weak<App>) {
-        match Self::get_current_state(&pipeline) {
+    fn toggle_play_pause(pipeline: &gst::Pipeline, ui: &Weak<App>, frame_handler: &FrameHandler) {
+        match Self::get_current_state(pipeline) {
             State::Playing => {
-                if Self::set_state_cb(&pipeline, State::Paused).is_err() {
+                if Self::set_state_cb(pipeline, ui, frame_handler, State::Paused).is_err() {
                     println!("Failed to pause video.");
                 };
-                ui.upgrade()
-                    .expect("Failed to upgrade UI.")
-                    .set_playing(false);
             }
             _ => {
-                if Self::set_state_cb(&pipeline, State::Playing).is_err() {
+                if Self::set_state_cb(pipeline, ui, frame_handler, State::Playing).is_err() {
                     println!("Failed to play video.");
                 };
-                ui.upgrade()
-                    .expect("Failed to upgrade UI.")
-                    .set_playing(true);
             }
         };
     }

@@ -1,20 +1,46 @@
-use gst::{glib::object::Cast, prelude::GstBinExt};
+use std::path::Path;
+
+use gst::{
+    glib::{clone, object::Cast},
+    prelude::{ElementExt, GstBinExt},
+};
 use slint::{Image, Weak};
 
-use crate::{image_pipeline::gstreamer::ImagePipeline, App};
+use crate::App;
 
-pub struct FrameHandler {}
+#[derive(Clone)]
+pub struct FrameHandler {
+    cat: Image,
+    ui: Weak<App>,
+}
 
 impl FrameHandler {
-    pub fn init(pipeline: &gst::Pipeline, ui: Weak<App>) {
+    pub fn init(pipeline: &gst::Pipeline, ui: Weak<App>) -> Self {
         // set up link of image pipeline output frames to GUI
-        let new_frame_callback: fn(App, Image) = |ui: App, new_frame| {
-            ui.set_video_frame(new_frame);
+        let new_frame_callback: fn(App, Image) = |ui, new_frame| {
+            if ui.get_playing() {
+                ui.set_video_frame(new_frame);
+            }
         };
-        Self::register_frame_callback(&pipeline, ui, new_frame_callback)
+        let ui_cb = ui.clone();
+        Self::register_frame_callback(pipeline, ui_cb, new_frame_callback)
             .expect("Failed to register new frame callback");
 
-        // set up link of image pipeline video controls to GUI
+        // load pause image (cat)
+        let cat_path = Path::new("ui/cat.jpg");
+        let Ok(cat) = Image::load_from_path(cat_path) else {
+            panic!("No cat found. Terrible!");
+        };
+
+        FrameHandler { cat, ui }
+    }
+
+    pub fn display_pause_image(&self) {
+        println!("Catting the window!");
+        self.ui
+            .upgrade()
+            .expect("Could not upgrade UI.")
+            .set_video_frame(self.cat.clone());
     }
 
     fn register_frame_callback<AppHandle: slint::ComponentHandle + 'static>(
