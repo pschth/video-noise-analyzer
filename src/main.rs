@@ -1,32 +1,23 @@
 mod image_pipeline;
 
-use gst::ffi::GstPipelineClass;
-use gst::{prelude::*, MessageView};
-use slint::Image;
-use std::error::Error;
-use std::sync::Arc;
-use std::time::Duration;
-
 use image_pipeline::gstreamer::ImagePipeline;
+use std::error::Error;
 
 slint::slint! {
-    export { Logic } from "ui/logic.slint";
     export { App } from "ui/app-window.slint";
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let pipeline = ImagePipeline::new().expect("Failed to create image pipeline");
+    let ui = App::new()?;
 
-    pipeline
-        .set_state(gst::State::Playing)
-        .expect("Unable to set the pipeline to the `Playing` state");
+    let pipeline = ImagePipeline::new(ui.as_weak()).expect("Failed to create image pipeline");
 
     // let pipeline = Arc::new(pipeline);
 
-    let caps = pipeline.get_device_capabilities();
-    for (idx, cap) in caps.iter().enumerate() {
-        println!("Device cap {idx}: {cap}");
-    }
+    // let caps = pipeline.get_device_capabilities();
+    // for (idx, cap) in caps.iter().enumerate() {
+    //     println!("Device cap {idx}: {cap}");
+    // }
 
     // let bus = pipeline.get_bus().expect("Pipeline without bus");
 
@@ -49,17 +40,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     //     }
     // }
 
-    let ui = App::new()?;
-
-    let new_frame_callback = |app: App, new_frame| {
-        app.set_video_frame(new_frame);
-    };
-    pipeline
-        .register_frame_callback(&ui, new_frame_callback)
-        .expect("Failed to register new frame callback");
-
     ui.run()?;
-    println!("UI has exited.");
 
     let _ = pipeline.set_state(gst::State::Null);
 

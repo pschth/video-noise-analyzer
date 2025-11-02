@@ -1,25 +1,27 @@
 import { Button, VerticalBox, HorizontalBox } from "std-widgets.slint";
 import { VideoControls } from "video-controls.slint";
 import { VideoWindow } from "video-window.slint";
-import { Logic } from "logic.slint";
 
 export component App inherits Window {
 
     in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
     in property <image> video-frame <=> image.video-frame;
+    in property <bool> playing <=> controls.playing;
+
+    pure callback toggle-play-pause <=> controls.toggle-play-pause;
 
     preferred-width: 640px;
     preferred-height: 480px;
     min-width: 640px;
     min-height: 100px;
-    title: "SOCOS Image Analyzer";
+    title: "Video Noise Analyzer";
     background: #BBBBBBFF;
 
     VerticalLayout {
         spacing: 5px;
         image := VideoWindow { }
 
-        VideoControls {
+        controls := VideoControls {
             video_sources: root.video_sources;
         }
     }

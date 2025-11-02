@@ -1,6 +1,5 @@
 import { Button, ScrollView, ComboBox } from "std-widgets.slint";
 import { Styles } from "styles.slint";
-import { Logic } from "logic.slint";
 
 component VideoText inherits Text {
     text: "example text";
@@ -12,9 +11,8 @@ component VideoText inherits Text {
 component VideoButton inherits Rectangle {
 
     in property <string> text;
-    out property <bool> playing: false;
 
-    callback clicked;
+    pure callback toggle-play-pause();
 
     width: Math.max(content.width + Styles.padding * 2, 100px);
     height: content.height + Styles.padding * 2;
@@ -29,7 +27,7 @@ component VideoButton inherits Rectangle {
     }
 
     ta := TouchArea {
-        clicked => root.clicked();
+        clicked => toggle-play-pause();
     }
 }
 
@@ -46,14 +44,15 @@ component VideoComboBox inherits Window {
 export component VideoControls inherits Window {
 
     in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
+    in property <bool> playing: false;
+    pure callback toggle-play-pause <=> play_button.toggle-play-pause;
 
     HorizontalLayout {
         HorizontalLayout {
             alignment: start;
             spacing: 5px;
             play_button := VideoButton {
-                text: Logic.playing ? "Pause" : "Play";
-                clicked => Logic.toggle-pause-play();
+                text: playing ? "Pause" : "Play";
             }
 
             screenshot_button := VideoButton {

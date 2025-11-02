@@ -1,16 +1,10 @@
-use std::{
-    fmt::Display,
-    os::unix::raw::uid_t,
-    sync::{atomic::AtomicBool, mpsc, Arc},
-    time::Duration,
-};
+use std::{fmt::Display, sync::atomic::AtomicBool};
 
-use futures::lock::Mutex;
-use gst::{prelude::*, BufferMap, Sample};
-use gst_app::AppSink;
-use gst_video::video_codec_state::Readable;
-use slint::{Image, Rgb8Pixel, SharedPixelBuffer};
+use gst::{prelude::*, State};
+use slint::Weak;
 use thiserror::Error;
+
+use crate::{image_pipeline::frame_handler::FrameHandler, App};
 
 #[derive(Debug, Error)]
 pub enum GstError {
@@ -48,12 +42,8 @@ impl Display for DeviceCapabilities {
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
     caps: Vec<DeviceCapabilities>,
-    sample_rx: mpsc::Receiver<Sample>,
     shutdown_flag: AtomicBool,
-}
-
-unsafe impl Sync for ImagePipeline {
-    // TODO: ensure this is safe
+    gui: Weak<App>,
 }
 
 impl Drop for ImagePipeline {
@@ -65,7 +55,7 @@ impl Drop for ImagePipeline {
 }
 
 impl ImagePipeline {
-    pub fn new() -> Result<Self, GstError> {
+    pub fn new(ui: Weak<App>) -> Result<Self, GstError> {
         gst::init()?;
         let device_caps = Self::get_raw_source_caps();
         if device_caps.is_empty() {
@@ -121,19 +111,6 @@ impl ImagePipeline {
         let sink = gst_app::AppSink::builder().build();
         // configure appsink to emit a signal when a new sample is ready
         sink.set_property("emit-signals", true);
-        // set callback to send new samples through channel to ImagePipeline object
-        let (sample_tx, sample_rx) = mpsc::channel::<Sample>();
-        sink.set_callbacks(
-            gst_app::AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let sample = appsink.pull_sample().map_err(|_| gst::FlowError::Eos)?;
-                    sample_tx
-                        .send(sample)
-                        .expect("Failed to send sample through channel");
-                    Ok(gst::FlowSuccess::Ok)
-                })
-                .build(),
-        );
 
         // build the pipeline
         let pipeline = gst::Pipeline::new();
@@ -141,62 +118,22 @@ impl ImagePipeline {
         pipeline.add_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
         gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
 
-        Ok(ImagePipeline {
+        let img_pipeline = ImagePipeline {
             pipeline,
             caps: device_caps,
-            sample_rx,
             shutdown_flag: AtomicBool::new(false),
-        })
-    }
+            gui: ui,
+        };
 
-    pub fn register_frame_callback<App: slint::ComponentHandle + 'static>(
-        &self,
-        ui: &App,
-        new_frame_cb: fn(App, Image),
-    ) -> Result<(), ()> {
-        let sink = self
-            .pipeline
-            .by_name("appsink0")
-            .expect("Could not find appsink element in pipeline.")
-            .downcast::<AppSink>()
-            .expect("Element is not an AppSink");
+        // link the video controls and the frame window to the image pipeline
+        img_pipeline.link_with_gui();
 
-        let ui_weak = ui.as_weak();
-        sink.set_callbacks(
-            gst_app::AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let Ok(sample) = appsink.pull_sample() else {
-                        println!("Failed to pull sample from appsink.");
-                        return Err(gst::FlowError::Eos);
-                    };
+        // set image pipeline to playing state if possible
+        img_pipeline
+            .set_state(State::Playing)
+            .expect("Could not set pipeline into playing state.");
 
-                    let Some(buffer) = sample.buffer() else {
-                        println!("Sample has no buffer.");
-                        return Err(gst::FlowError::Error);
-                    };
-                    let Ok(map) = buffer.map_readable() else {
-                        println!("Failed to map buffer readable.");
-                        return Err(gst::FlowError::Error);
-                    };
-                    let data = map.as_slice();
-
-                    // Create an Image from the raw RGB data
-                    let video_info =
-                        gst_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
-                    let pixel_buffer = SharedPixelBuffer::<Rgb8Pixel>::clone_from_slice(
-                        data,
-                        video_info.width(),
-                        video_info.height(),
-                    );
-
-                    ui_weak.upgrade_in_event_loop(move |ui| {
-                        new_frame_cb(ui, Image::from_rgb8(pixel_buffer));
-                    });
-                    Ok(gst::FlowSuccess::Ok)
-                })
-                .build(),
-        );
-        Ok(())
+        Ok(img_pipeline)
     }
 
     /// sets the pipeline to the given state
@@ -204,10 +141,72 @@ impl ImagePipeline {
         &self,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        self.pipeline.set_state(state)
+        match self.pipeline.set_state(state) {
+            Ok(_) => {
+                let ui = self.gui.upgrade().expect("Could not upgrade UI.");
+                match state {
+                    State::Playing => ui.set_playing(true),
+                    _ => ui.set_playing(false),
+                };
+                Ok(gst::StateChangeSuccess::Success)
+            }
+            Err(_) => Err(gst::StateChangeError),
+        }
     }
 
-    pub fn set_video_properties(&self, cap_idx: usize) -> Result<(), GstError> {
+    pub fn set_state_cb(
+        pipeline: &gst::Pipeline,
+        state: gst::State,
+    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+        pipeline.set_state(state)
+    }
+
+    fn link_with_gui(&self) {
+        // set up link of image pipeline output frames to GUI
+        FrameHandler::init(&self.pipeline, self.gui.clone());
+
+        // set up link of image pipeline video controls to GUI
+        let pipeline = self.pipeline.clone();
+        let gui_cb = self.gui.clone();
+        self.gui
+            .upgrade()
+            .expect("Could not upgrade UI.")
+            .on_toggle_play_pause(move || {
+                Self::toggle_play_pause(&pipeline, &gui_cb);
+            });
+    }
+
+    fn get_current_state(pipeline: &gst::Pipeline) -> State {
+        let (ret, state, pending) = pipeline.state(None);
+        if ret.is_err() {
+            println!("State change failed. Continuing anyway.")
+        }
+        println!("Current state: {state:?}, pending state: {pending:?}.");
+        state
+    }
+
+    fn toggle_play_pause(pipeline: &gst::Pipeline, ui: &Weak<App>) {
+        match Self::get_current_state(&pipeline) {
+            State::Playing => {
+                if Self::set_state_cb(&pipeline, State::Paused).is_err() {
+                    println!("Failed to pause video.");
+                };
+                ui.upgrade()
+                    .expect("Failed to upgrade UI.")
+                    .set_playing(false);
+            }
+            _ => {
+                if Self::set_state_cb(&pipeline, State::Playing).is_err() {
+                    println!("Failed to play video.");
+                };
+                ui.upgrade()
+                    .expect("Failed to upgrade UI.")
+                    .set_playing(true);
+            }
+        };
+    }
+
+    fn set_video_properties(&self, cap_idx: usize) -> Result<(), GstError> {
         if cap_idx >= self.caps.len() {
             return Err(GstError::NoCapsFound);
         }
@@ -232,22 +231,12 @@ impl ImagePipeline {
         Ok(())
     }
 
-    pub fn get_bus(&self) -> Option<gst::Bus> {
+    fn get_bus(&self) -> Option<gst::Bus> {
         self.pipeline.bus()
     }
 
-    pub fn get_device_capabilities(&self) -> &Vec<DeviceCapabilities> {
+    fn get_device_capabilities(&self) -> &Vec<DeviceCapabilities> {
         &self.caps
-    }
-
-    fn get_sample(&self) -> Option<Sample> {
-        match self.sample_rx.recv_timeout(Duration::from_secs(1)) {
-            Ok(sample) => Some(sample),
-            Err(_) => {
-                println!("No sample received within 1 second.");
-                None
-            }
-        }
     }
 
     /// Queries all available v4l2 video source devices and their raw capabilities.
