@@ -34,16 +34,20 @@ component VideoButton inherits Rectangle {
 component VideoComboBox inherits Window {
     background: transparent;
 
-    in property <[string]> options: ["first", "second", "third"];
-    ComboBox {
+    in-out property <int> current-index <=> cb.current-index;
+
+    in property <[string]> options;
+    cb := ComboBox {
         model: options;
-        current-value: options[0];
     }
 }
 
 export component VideoControls inherits Window {
 
-    in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
+    in property <[string]> video_sources <=> sources.options;
+    in-out property <int> curr_video_source <=> sources.current-index;
+    in property <[string]> fps <=> framerates.options;
+    in-out property <int> curr_fps <=> framerates.current-index;
     in property <bool> playing: false;
     pure callback toggle-play-pause <=> play_button.toggle-play-pause;
 
@@ -66,12 +70,18 @@ export component VideoControls inherits Window {
             VideoText {
                 vertical-alignment: center;
                 horizontal-alignment: right;
-                text: "Select video source:";
+                text: "Source:";
             }
 
-            VideoComboBox {
-                options: root.video_sources;
+            sources := VideoComboBox { }
+
+            VideoText {
+                vertical-alignment: center;
+                horizontal-alignment: right;
+                text: "FPS:";
             }
+
+            framerates := VideoComboBox { }
         }
     }
 }

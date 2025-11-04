@@ -1,10 +1,13 @@
 use std::{fmt::Display, sync::atomic::AtomicBool};
 
-use gst::{prelude::*, State};
-use slint::Weak;
+use gst::{debug, ffi::GstFraction, prelude::*, State};
+use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 use thiserror::Error;
 
-use crate::{image_pipeline::frame_handler::FrameHandler, App};
+use crate::{
+    image_pipeline::frame_handler::{self, FrameHandler},
+    App,
+};
 
 #[derive(Debug, Error)]
 pub enum GstError {
@@ -29,6 +32,12 @@ pub struct DeviceCapabilities {
     device_path: String,
 }
 
+impl DeviceCapabilities {
+    fn to_string_wo_framerate(&self) -> String {
+        format!("{}: {}x{}", self.device_path, self.width, self.height)
+    }
+}
+
 impl Display for DeviceCapabilities {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -44,7 +53,7 @@ pub struct ImagePipeline {
     frame_handler: FrameHandler,
     caps: Vec<DeviceCapabilities>,
     shutdown_flag: AtomicBool,
-    gui: Weak<App>,
+    ui: Weak<App>,
 }
 
 impl Drop for ImagePipeline {
@@ -120,14 +129,14 @@ impl ImagePipeline {
         gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
 
         // link the video controls and the frame window to the image pipeline
-        let frame_handler = ImagePipeline::link_with_gui(&pipeline, &ui);
+        let frame_handler = ImagePipeline::link_with_gui(&pipeline, &ui, &device_caps);
 
         let img_pipeline = ImagePipeline {
             pipeline,
             caps: device_caps,
             frame_handler,
             shutdown_flag: AtomicBool::new(false),
-            gui: ui,
+            ui,
         };
 
         // set image pipeline to pause state if possible
@@ -143,7 +152,7 @@ impl ImagePipeline {
         &self,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        Self::set_state_cb(&self.pipeline, &self.gui, &self.frame_handler, state)
+        Self::set_state_cb(&self.pipeline, &self.ui, &self.frame_handler, state)
     }
 
     pub fn set_state_cb(
@@ -171,19 +180,40 @@ impl ImagePipeline {
         }
     }
 
-    fn link_with_gui(pipeline: &gst::Pipeline, gui: &Weak<App>) -> FrameHandler {
+    fn link_with_gui(
+        pipeline: &gst::Pipeline,
+        ui: &Weak<App>,
+        caps: &[DeviceCapabilities],
+    ) -> FrameHandler {
         // set up link of image pipeline output frames to GUI
-        let fh = FrameHandler::init(&pipeline, gui.clone());
+        let fh = FrameHandler::init(pipeline, ui.clone());
 
         // set up link of image pipeline video controls to GUI
         let pipeline = pipeline.clone();
-        let gui_cb = gui.clone();
+        let gui_cb = ui.clone();
         let fh_cb = fh.clone();
-        gui.upgrade()
-            .expect("Could not upgrade UI.")
-            .on_toggle_play_pause(move || {
-                Self::toggle_play_pause(&pipeline, &gui_cb, &fh_cb);
-            });
+        let ui = ui.upgrade().expect("Could not upgrade UI.");
+
+        ui.on_toggle_play_pause(move || {
+            Self::toggle_play_pause(&pipeline, &gui_cb, &fh_cb);
+        });
+
+        let available_sources: VecModel<SharedString> = caps
+            .iter()
+            .map(|s| SharedString::from(s.to_string_wo_framerate()))
+            .collect();
+        ui.set_video_sources(ModelRc::new(available_sources));
+
+        let curr_source_index = ui.get_current_video_source() as usize;
+        let framerates = VecModel::from_slice(&caps[curr_source_index].framerate);
+        let framerates: VecModel<SharedString> = framerates
+            .iter()
+            .map(|f| {
+                let frac = f.get::<gst::Fraction>().unwrap();
+                SharedString::from(format!("{}/{}", frac.numer(), frac.denom()))
+            })
+            .collect();
+        ui.set_framerates(ModelRc::new(framerates));
 
         fh
     }

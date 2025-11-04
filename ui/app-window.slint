@@ -4,7 +4,10 @@ import { VideoWindow } from "video-window.slint";
 
 export component App inherits Window {
 
-    in property <[string]> video_sources: ["Camera 1", "Camera 2", "Video File"];
+    in property <[string]> video_sources <=> controls.video_sources;
+    in-out property <int> current_video_source <=> controls.curr_video_source;
+    in property <[string]> framerates <=> controls.fps;
+    in-out property <int> curr_fps <=> controls.curr_fps;
     in property <image> video-frame <=> image.video-frame;
     in property <bool> playing <=> controls.playing;
 
@@ -21,8 +24,6 @@ export component App inherits Window {
         spacing: 5px;
         image := VideoWindow { }
 
-        controls := VideoControls {
-            video_sources: root.video_sources;
-        }
+        controls := VideoControls { }
     }
 }
