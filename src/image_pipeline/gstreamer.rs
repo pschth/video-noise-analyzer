@@ -1,4 +1,7 @@
-use std::{fmt::Display, sync::atomic::AtomicBool, sync::Arc};
+use std::{
+    fmt::Display,
+    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
+};
 
 use gst::{debug, ffi::GstFraction, prelude::*, State};
 use slint::{Model, ModelRc, SharedString, VecModel, Weak};
@@ -37,7 +40,7 @@ pub enum UiError {
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
     frame_handler: Option<FrameHandler>,
-    caps: RawSourceCaps,
+    caps: Arc<Mutex<RawSourceCaps>>,
     shutdown_flag: AtomicBool,
     ui: Weak<App>,
 }
@@ -60,24 +63,22 @@ impl ImagePipeline {
         }
 
         // create source element
+        let curr_cap = &device_caps[caps_obj.curr_cap_idx];
         let source = gst::ElementFactory::make("v4l2src")
             .name("source")
             .build()
             .expect("Could not create v4l2src element. Make sure the v4l2 plugin is installed.");
-        source.set_property("device", &device_caps[0].device_path);
+        source.set_property("device", &curr_cap.device_path);
 
         // set video capabilities to the first available capability
-        let framerate = device_caps
-            .first()
-            .unwrap()
-            .framerate
-            .first()
-            .and_then(|v| v.get::<gst::Fraction>().ok())
+        let curr_framerate = &curr_cap.framerates[caps_obj.curr_framerate_idx];
+        let framerate: gst::Fraction = curr_framerate
+            .get::<gst::Fraction>()
             .expect("Could not get framerate from device capabilities.");
 
         let caps = gst::Caps::builder("video/x-raw")
-            .field("width", device_caps.first().unwrap().width)
-            .field("height", device_caps.first().unwrap().height)
+            .field("width", curr_cap.width)
+            .field("height", curr_cap.height)
             .field("framerate", framerate)
             .build();
 
@@ -117,7 +118,7 @@ impl ImagePipeline {
 
         let mut img_pipeline = ImagePipeline {
             pipeline,
-            caps: caps_obj,
+            caps: Arc::new(Mutex::new(caps_obj)),
             frame_handler: None,
             shutdown_flag: AtomicBool::new(false),
             ui,
@@ -191,37 +192,54 @@ impl ImagePipeline {
         let pipeline_arc = Arc::new(self.pipeline.clone());
         let ui_weak_arc = ui.clone();
         let frame_handler_arc = Arc::new(self.frame_handler.clone().unwrap());
-        let caps_arc = Arc::new(self.caps.clone());
+        let caps_arc = self.caps.clone();
         let ui_arc = Arc::new(ui.upgrade().expect("Could not upgrade UI."));
 
         // set up callbacks for video controls
         ui_arc.on_toggle_play_pause({
-            let pipeline_clone = pipeline_arc.clone();
+            let pipeline_arc = pipeline_arc.clone();
             move || {
                 Self::toggle_play_pause(
-                    pipeline_clone.as_ref(),
+                    pipeline_arc.as_ref(),
                     ui_weak_arc.as_ref(),
                     frame_handler_arc.as_ref(),
                 );
             }
         });
-        let ui_clone = ui_arc.clone();
-        ui_arc.on_selected_video_source(move |value| {
-            let selected_idx = ui_clone.get_current_video_source() as usize;
-            println!("Selected video source: {value}, index: {selected_idx}");
 
-            if Self::set_video_properties(
-                pipeline_arc.clone().as_ref(),
-                selected_idx,
-                caps_arc.as_ref(),
-            )
-            .is_err()
-            {
-                println!("Failed to set video properties for selected source.");
-            };
+        let ui_clone = ui_arc.clone();
+        ui_arc.on_selected_video_source({
+            let pipeline_arc = pipeline_arc.clone();
+            let caps_arc = caps_arc.clone();
+            move |value| {
+                let selected_idx = ui_clone.get_current_video_source() as usize;
+                println!("Selected video source: {value}, index: {selected_idx}");
+
+                if Self::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone())
+                    .is_err()
+                {
+                    println!("Failed to set video properties for selected source.");
+                };
+            }
         });
 
-        let cap_vec = &self.caps.get_caps();
+        let ui_clone = ui_arc.clone();
+        ui_arc.on_selected_framerate({
+            let pipeline_arc = pipeline_arc.clone();
+            move |value| {
+                let selected_idx = ui_clone.get_curr_fps() as usize;
+                println!("Selected framerate: {value}, index: {selected_idx}");
+
+                if Self::set_framerate(pipeline_arc.as_ref(), selected_idx, caps_arc.clone())
+                    .is_err()
+                {
+                    println!("Failed to set video properties for selected source.");
+                };
+            }
+        });
+
+        let cap_lock = self.caps.lock().expect("Could not acquire lock");
+        let cap_vec = cap_lock.get_caps();
         let available_sources: VecModel<SharedString> = cap_vec
             .iter()
             .map(|s| SharedString::from(s.to_string_wo_framerate()))
@@ -229,7 +247,7 @@ impl ImagePipeline {
         ui_arc.set_video_sources(ModelRc::new(available_sources));
 
         let curr_source_index = ui_arc.get_current_video_source() as usize;
-        let framerates = VecModel::from_slice(&cap_vec[curr_source_index].framerate);
+        let framerates = VecModel::from_slice(&cap_vec[curr_source_index].framerates);
         let framerates: VecModel<SharedString> = framerates
             .iter()
             .map(|f| {
@@ -268,11 +286,12 @@ impl ImagePipeline {
         };
     }
 
-    fn set_video_properties(
+    fn set_video_resolution(
         pipeline: &gst::Pipeline,
         cap_idx: usize,
-        caps: &RawSourceCaps,
+        caps: Arc<Mutex<RawSourceCaps>>,
     ) -> Result<(), GstError> {
+        let caps = &mut caps.lock().expect("Caps Mutex poisened");
         if cap_idx >= caps.len() {
             return Err(GstError::NoCapsFound);
         }
@@ -283,16 +302,58 @@ impl ImagePipeline {
             .ok_or(GstError::ElementNotFound)?
             .set_property("device", &device_cap.device_path);
 
-        let caps = gst::Caps::builder("video/x-raw")
+        let pipeline_caps = gst::Caps::builder("video/x-raw")
             .field("width", device_cap.width)
             .field("height", device_cap.height)
-            .field("framerate", &device_cap.framerate)
             .build();
 
         pipeline
             .by_name("filter")
             .ok_or(GstError::ElementNotFound)?
-            .set_property("caps", &caps);
+            .set_property("caps", &pipeline_caps);
+
+        caps.curr_cap_idx = cap_idx;
+
+        Ok(())
+    }
+
+    fn set_framerate(
+        pipeline: &gst::Pipeline,
+        framerate_idx: usize,
+        caps: Arc<Mutex<RawSourceCaps>>,
+    ) -> Result<(), GstError> {
+        let caps = &mut caps.lock().expect("Caps Mutex poisened");
+        let device_cap = &caps.get_caps()[caps.curr_cap_idx];
+
+        if framerate_idx >= device_cap.framerates.len() {
+            println!(
+                "Framerate index {framerate_idx} out of bounds. Max is {}.",
+                device_cap.framerates.len() - 1
+            );
+            return Err(GstError::NoCapsFound);
+        }
+
+        pipeline
+            .by_name("source")
+            .ok_or(GstError::ElementNotFound)?
+            .set_property("device", &device_cap.device_path);
+
+        let framerate = &device_cap.framerates[framerate_idx];
+        let framerate: gst::Fraction = framerate.get::<gst::Fraction>().map_err(|_| {
+            println!("Could not convert framerate from device capabilities.");
+            GstError::NoCapsFound
+        })?;
+
+        let pipeline_caps = gst::Caps::builder("video/x-raw")
+            .field("framerate", framerate)
+            .build();
+
+        pipeline
+            .by_name("filter")
+            .ok_or(GstError::ElementNotFound)?
+            .set_property("caps", &pipeline_caps);
+
+        caps.curr_framerate_idx = framerate_idx;
 
         Ok(())
     }
@@ -301,7 +362,7 @@ impl ImagePipeline {
         self.pipeline.bus()
     }
 
-    fn get_device_capabilities(&self) -> &RawSourceCaps {
+    fn get_device_capabilities(&self) -> &Arc<Mutex<RawSourceCaps>> {
         &self.caps
     }
 }

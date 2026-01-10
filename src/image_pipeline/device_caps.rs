@@ -6,6 +6,8 @@ use gst::prelude::*;
 
 #[derive(Debug, Clone)]
 pub struct RawSourceCaps {
+    pub curr_cap_idx: usize,
+    pub curr_framerate_idx: usize,
     caps: Vec<RawSourceCap>,
 }
 
@@ -13,7 +15,7 @@ pub struct RawSourceCaps {
 pub struct RawSourceCap {
     pub width: i32,
     pub height: i32,
-    pub framerate: gst::List,
+    pub framerates: gst::List,
     pub device_path: String,
 }
 
@@ -22,7 +24,7 @@ impl Display for RawSourceCap {
         write!(
             f,
             "video/x-raw, Resolution: {}x{}, Framerates: {:?}, Device Path: {}",
-            self.width, self.height, self.framerate, self.device_path,
+            self.width, self.height, self.framerates, self.device_path,
         )
     }
 }
@@ -39,6 +41,8 @@ impl RawSourceCaps {
     pub fn new() -> Self {
         RawSourceCaps {
             caps: Self::get_raw_source_caps(),
+            curr_cap_idx: 0,
+            curr_framerate_idx: 0,
         }
     }
 
@@ -94,13 +98,13 @@ impl RawSourceCaps {
 
                     let width = caps.get::<i32>("width");
                     let height = caps.get::<i32>("height");
-                    let framerate = caps.get::<gst::List>("framerate");
+                    let framerates = caps.get::<gst::List>("framerate");
 
-                    if let (Ok(width), Ok(height), Ok(framerate)) = (width, height, framerate) {
+                    if let (Ok(width), Ok(height), Ok(framerates)) = (width, height, framerates) {
                         let device_cap = RawSourceCap {
                             width,
                             height,
-                            framerate,
+                            framerates,
                             device_path: device_path.clone(),
                         };
                         device_caps.push(device_cap);
