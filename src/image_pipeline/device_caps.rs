@@ -4,12 +4,12 @@ use std::fmt::Display;
 
 use gst::prelude::*;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawSourceCaps {
     caps: Vec<RawSourceCap>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RawSourceCap {
     pub width: i32,
     pub height: i32,

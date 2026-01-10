@@ -191,23 +191,34 @@ impl ImagePipeline {
         let pipeline_arc = Arc::new(self.pipeline.clone());
         let ui_weak_arc = ui.clone();
         let frame_handler_arc = Arc::new(self.frame_handler.clone().unwrap());
+        let caps_arc = Arc::new(self.caps.clone());
         let ui_arc = Arc::new(ui.upgrade().expect("Could not upgrade UI."));
 
         // set up callbacks for video controls
-        ui_arc.on_toggle_play_pause(move || {
-            Self::toggle_play_pause(
-                pipeline_arc.as_ref(),
-                ui_weak_arc.as_ref(),
-                frame_handler_arc.as_ref(),
-            );
+        ui_arc.on_toggle_play_pause({
+            let pipeline_clone = pipeline_arc.clone();
+            move || {
+                Self::toggle_play_pause(
+                    pipeline_clone.as_ref(),
+                    ui_weak_arc.as_ref(),
+                    frame_handler_arc.as_ref(),
+                );
+            }
         });
         let ui_clone = ui_arc.clone();
         ui_arc.on_selected_video_source(move |value| {
-            println!(
-                "Selected video source: {}, index: {}",
-                value,
-                ui_clone.get_current_video_source()
-            );
+            let selected_idx = ui_clone.get_current_video_source() as usize;
+            println!("Selected video source: {value}, index: {selected_idx}");
+
+            if Self::set_video_properties(
+                pipeline_arc.clone().as_ref(),
+                selected_idx,
+                caps_arc.as_ref(),
+            )
+            .is_err()
+            {
+                println!("Failed to set video properties for selected source.");
+            };
         });
 
         let cap_vec = &self.caps.get_caps();
@@ -257,13 +268,17 @@ impl ImagePipeline {
         };
     }
 
-    fn set_video_properties(&self, cap_idx: usize) -> Result<(), GstError> {
-        if cap_idx >= self.caps.len() {
+    fn set_video_properties(
+        pipeline: &gst::Pipeline,
+        cap_idx: usize,
+        caps: &RawSourceCaps,
+    ) -> Result<(), GstError> {
+        if cap_idx >= caps.len() {
             return Err(GstError::NoCapsFound);
         }
-        let device_cap = &self.caps.get_caps()[cap_idx];
+        let device_cap = &caps.get_caps()[cap_idx];
 
-        self.pipeline
+        pipeline
             .by_name("source")
             .ok_or(GstError::ElementNotFound)?
             .set_property("device", &device_cap.device_path);
@@ -274,7 +289,7 @@ impl ImagePipeline {
             .field("framerate", &device_cap.framerate)
             .build();
 
-        self.pipeline
+        pipeline
             .by_name("filter")
             .ok_or(GstError::ElementNotFound)?
             .set_property("caps", &caps);
