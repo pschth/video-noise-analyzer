@@ -12,6 +12,7 @@ export component App inherits Window {
     in property <bool> playing <=> controls.playing;
 
     pure callback toggle-play-pause <=> controls.toggle-play-pause;
+    callback selected-video-source <=> controls.selected-video-source;
 
     preferred-width: 640px;
     preferred-height: 480px;

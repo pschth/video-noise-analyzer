@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use gst::{glib::object::Cast, prelude::GstBinExt};
 use slint::{Image, Weak};
@@ -8,19 +8,18 @@ use crate::App;
 #[derive(Clone)]
 pub struct FrameHandler {
     cat: Image,
-    ui: Weak<App>,
+    ui: Arc<Weak<App>>,
 }
 
 impl FrameHandler {
-    pub fn init(pipeline: &gst::Pipeline, ui: Weak<App>) -> Self {
+    pub fn init(pipeline: &gst::Pipeline, ui: Arc<Weak<App>>) -> Self {
         // set up link of image pipeline output frames to GUI
         let new_frame_callback: fn(App, Image) = |ui, new_frame| {
             if ui.get_playing() {
                 ui.set_video_frame(new_frame);
             }
         };
-        let ui_cb = ui.clone();
-        Self::register_frame_callback(pipeline, ui_cb, new_frame_callback)
+        Self::register_frame_callback(pipeline, ui.clone(), new_frame_callback)
             .expect("Failed to register new frame callback");
 
         // load pause image (cat)
@@ -42,7 +41,7 @@ impl FrameHandler {
 
     fn register_frame_callback<AppHandle: slint::ComponentHandle + 'static>(
         pipeline: &gst::Pipeline,
-        ui: Weak<AppHandle>,
+        ui: Arc<Weak<AppHandle>>,
         new_frame_cb: fn(AppHandle, Image),
     ) -> Result<(), ()> {
         let sink = pipeline

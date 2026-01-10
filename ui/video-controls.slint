@@ -36,6 +36,8 @@ component VideoComboBox inherits Window {
 
     in-out property <int> current-index <=> cb.current-index;
 
+    callback selected <=> cb.selected;
+
     in property <[string]> options;
     cb := ComboBox {
         model: options;
@@ -49,7 +51,9 @@ export component VideoControls inherits Window {
     in property <[string]> fps <=> framerates.options;
     in-out property <int> curr_fps <=> framerates.current-index;
     in property <bool> playing: false;
+
     pure callback toggle-play-pause <=> play_button.toggle-play-pause;
+    callback selected-video-source <=> sources.selected;
 
     HorizontalLayout {
         HorizontalLayout {
@@ -73,7 +77,11 @@ export component VideoControls inherits Window {
                 text: "Source:";
             }
 
-            sources := VideoComboBox { }
+            sources := VideoComboBox {
+                selected(value) => {
+                    debug("Selected video source: ", value);
+                }
+            }
 
             VideoText {
                 vertical-alignment: center;
@@ -81,7 +89,11 @@ export component VideoControls inherits Window {
                 text: "FPS:";
             }
 
-            framerates := VideoComboBox { }
+            framerates := VideoComboBox {
+                selected(value) => {
+                    debug("Selected framerate: ", value);
+                }
+            }
         }
     }
 }

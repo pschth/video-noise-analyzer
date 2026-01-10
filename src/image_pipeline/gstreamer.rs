@@ -1,11 +1,15 @@
-use std::{fmt::Display, sync::atomic::AtomicBool};
+use std::{fmt::Display, sync::atomic::AtomicBool, sync::Arc};
 
 use gst::{debug, ffi::GstFraction, prelude::*, State};
 use slint::{Model, ModelRc, SharedString, VecModel, Weak};
 use thiserror::Error;
+use v4l::device;
 
 use crate::{
-    image_pipeline::frame_handler::{self, FrameHandler},
+    image_pipeline::{
+        device_caps::RawSourceCaps,
+        frame_handler::{self, FrameHandler},
+    },
     App,
 };
 
@@ -24,34 +28,16 @@ pub enum GstError {
     ElementNotFound,
 }
 
-#[derive(Debug)]
-pub struct DeviceCapabilities {
-    width: i32,
-    height: i32,
-    framerate: gst::List,
-    device_path: String,
-}
-
-impl DeviceCapabilities {
-    fn to_string_wo_framerate(&self) -> String {
-        format!("{}: {}x{}", self.device_path, self.width, self.height)
-    }
-}
-
-impl Display for DeviceCapabilities {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "video/x-raw, Resolution: {}x{}, Framerates: {:?}, Device Path: {}",
-            self.width, self.height, self.framerate, self.device_path,
-        )
-    }
+#[derive(Debug, Error)]
+pub enum UiError {
+    #[error("UI already initialized.")]
+    AlreadyInitialized,
 }
 
 pub struct ImagePipeline {
     pipeline: gst::Pipeline,
-    frame_handler: FrameHandler,
-    caps: Vec<DeviceCapabilities>,
+    frame_handler: Option<FrameHandler>,
+    caps: RawSourceCaps,
     shutdown_flag: AtomicBool,
     ui: Weak<App>,
 }
@@ -67,7 +53,8 @@ impl Drop for ImagePipeline {
 impl ImagePipeline {
     pub fn new(ui: Weak<App>) -> Result<Self, GstError> {
         gst::init()?;
-        let device_caps = Self::get_raw_source_caps();
+        let caps_obj = RawSourceCaps::new();
+        let device_caps = caps_obj.get_caps();
         if device_caps.is_empty() {
             return Err(GstError::NoCapsFound);
         }
@@ -128,16 +115,22 @@ impl ImagePipeline {
         pipeline.add_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
         gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])?;
 
-        // link the video controls and the frame window to the image pipeline
-        let frame_handler = ImagePipeline::link_with_gui(&pipeline, &ui, &device_caps);
-
-        let img_pipeline = ImagePipeline {
+        let mut img_pipeline = ImagePipeline {
             pipeline,
-            caps: device_caps,
-            frame_handler,
+            caps: caps_obj,
+            frame_handler: None,
             shutdown_flag: AtomicBool::new(false),
             ui,
         };
+
+        // link the video controls and the frame window to the image pipeline
+        img_pipeline.link_with_gui().map_err(|e| {
+            println!("Failed to link image pipeline with GUI: {}", e);
+            GstError::Error(gst::glib::Error::new(
+                gst::glib::FileError::Failed,
+                "Failed to link image pipeline with GUI.",
+            ))
+        })?;
 
         // set image pipeline to pause state if possible
         img_pipeline
@@ -152,7 +145,11 @@ impl ImagePipeline {
         &self,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        Self::set_state_cb(&self.pipeline, &self.ui, &self.frame_handler, state)
+        let Some(fh) = &self.frame_handler else {
+            println!("Frame handler not initialized.");
+            return Err(gst::StateChangeError);
+        };
+        Self::set_state_cb(&self.pipeline, &self.ui, fh, state)
     }
 
     pub fn set_state_cb(
@@ -180,32 +177,48 @@ impl ImagePipeline {
         }
     }
 
-    fn link_with_gui(
-        pipeline: &gst::Pipeline,
-        ui: &Weak<App>,
-        caps: &[DeviceCapabilities],
-    ) -> FrameHandler {
+    /// links the gstreamer image pipeline to the GUI controls and frame display
+    fn link_with_gui(&mut self) -> Result<(), UiError> {
         // set up link of image pipeline output frames to GUI
-        let fh = FrameHandler::init(pipeline, ui.clone());
+        if self.frame_handler.is_some() {
+            return Err(UiError::AlreadyInitialized);
+        }
+        let ui = Arc::new(self.ui.clone());
+        self.frame_handler
+            .replace(FrameHandler::init(&self.pipeline, ui.clone()));
 
         // set up link of image pipeline video controls to GUI
-        let pipeline = pipeline.clone();
-        let gui_cb = ui.clone();
-        let fh_cb = fh.clone();
-        let ui = ui.upgrade().expect("Could not upgrade UI.");
+        let pipeline_arc = Arc::new(self.pipeline.clone());
+        let ui_weak_arc = ui.clone();
+        let frame_handler_arc = Arc::new(self.frame_handler.clone().unwrap());
+        let ui_arc = Arc::new(ui.upgrade().expect("Could not upgrade UI."));
 
-        ui.on_toggle_play_pause(move || {
-            Self::toggle_play_pause(&pipeline, &gui_cb, &fh_cb);
+        // set up callbacks for video controls
+        ui_arc.on_toggle_play_pause(move || {
+            Self::toggle_play_pause(
+                pipeline_arc.as_ref(),
+                ui_weak_arc.as_ref(),
+                frame_handler_arc.as_ref(),
+            );
+        });
+        let ui_clone = ui_arc.clone();
+        ui_arc.on_selected_video_source(move |value| {
+            println!(
+                "Selected video source: {}, index: {}",
+                value,
+                ui_clone.get_current_video_source()
+            );
         });
 
-        let available_sources: VecModel<SharedString> = caps
+        let cap_vec = &self.caps.get_caps();
+        let available_sources: VecModel<SharedString> = cap_vec
             .iter()
             .map(|s| SharedString::from(s.to_string_wo_framerate()))
             .collect();
-        ui.set_video_sources(ModelRc::new(available_sources));
+        ui_arc.set_video_sources(ModelRc::new(available_sources));
 
-        let curr_source_index = ui.get_current_video_source() as usize;
-        let framerates = VecModel::from_slice(&caps[curr_source_index].framerate);
+        let curr_source_index = ui_arc.get_current_video_source() as usize;
+        let framerates = VecModel::from_slice(&cap_vec[curr_source_index].framerate);
         let framerates: VecModel<SharedString> = framerates
             .iter()
             .map(|f| {
@@ -213,11 +226,12 @@ impl ImagePipeline {
                 SharedString::from(format!("{}/{}", frac.numer(), frac.denom()))
             })
             .collect();
-        ui.set_framerates(ModelRc::new(framerates));
+        ui_arc.set_framerates(ModelRc::new(framerates));
 
-        fh
+        Ok(())
     }
 
+    /// gets the current state of the pipeline (playing, paused, etc.)
     fn get_current_state(pipeline: &gst::Pipeline) -> State {
         let (ret, state, pending) = pipeline.state(None);
         if ret.is_err() {
@@ -227,6 +241,7 @@ impl ImagePipeline {
         state
     }
 
+    /// toggles between play and pause states of the pipeline
     fn toggle_play_pause(pipeline: &gst::Pipeline, ui: &Weak<App>, frame_handler: &FrameHandler) {
         match Self::get_current_state(pipeline) {
             State::Playing => {
@@ -246,7 +261,7 @@ impl ImagePipeline {
         if cap_idx >= self.caps.len() {
             return Err(GstError::NoCapsFound);
         }
-        let device_cap = &self.caps[cap_idx];
+        let device_cap = &self.caps.get_caps()[cap_idx];
 
         self.pipeline
             .by_name("source")
@@ -271,66 +286,7 @@ impl ImagePipeline {
         self.pipeline.bus()
     }
 
-    fn get_device_capabilities(&self) -> &Vec<DeviceCapabilities> {
+    fn get_device_capabilities(&self) -> &RawSourceCaps {
         &self.caps
-    }
-
-    /// Queries all available v4l2 video source devices and their raw capabilities.
-    fn get_raw_source_caps() -> Vec<DeviceCapabilities> {
-        let mut device_caps: Vec<DeviceCapabilities> = vec![];
-
-        // device monitor to list video sources
-        let monitor = gst::DeviceMonitor::new();
-        monitor.add_filter(Some("Video/Source"), None);
-        monitor.start().expect("Could not start device monitor");
-
-        for device in monitor.devices() {
-            let display_name = device.display_name();
-            // get linux video source device path, e.g. /dev/video0
-            let properties = match device.properties() {
-                None => {
-                    println!("Device {display_name} has no properties.");
-                    continue;
-                }
-                Some(props) => props,
-            };
-            let device_path = match properties.get::<String>("api.v4l2.path") {
-                Err(_) => {
-                    println!("Device {display_name} has no api.v4l2.path property.");
-                    continue;
-                }
-                Ok(path) => path,
-            };
-
-            // print supported caps
-            if let Some(caps_list) = device.caps() {
-                println!("Available v4l2 caps:");
-                for caps in caps_list.iter() {
-                    if caps.name() != "video/x-raw" {
-                        continue;
-                    }
-
-                    let width = caps.get::<i32>("width");
-                    let height = caps.get::<i32>("height");
-                    let framerate = caps.get::<gst::List>("framerate");
-
-                    if let (Ok(width), Ok(height), Ok(framerate)) = (width, height, framerate) {
-                        let device_cap = DeviceCapabilities {
-                            width,
-                            height,
-                            framerate,
-                            device_path: device_path.clone(),
-                        };
-                        device_caps.push(device_cap);
-                    } else {
-                        println!("  Could not get width/height/framerate/image_format for caps: {caps:?}");
-                    }
-                }
-            } else {
-                println!("Device {display_name} has no caps.");
-            }
-        }
-
-        device_caps
     }
 }
