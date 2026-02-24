@@ -69,14 +69,12 @@ impl FrameHandler {
                     let data = map.as_slice();
 
                     // Create an Image from the raw RGB data
-                    let video_info =
-                        gst_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
-                    let pixel_buffer =
-                        slint::SharedPixelBuffer::<slint::Rgb8Pixel>::clone_from_slice(
-                            data,
-                            video_info.width(),
-                            video_info.height(),
-                        );
+                    let video_info = gst_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
+                    let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::clone_from_slice(
+                        data,
+                        video_info.width(),
+                        video_info.height(),
+                    );
 
                     ui.upgrade_in_event_loop(move |ui| {
                         new_frame_cb(ui, Image::from_rgb8(pixel_buffer));

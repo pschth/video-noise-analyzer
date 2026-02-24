@@ -47,8 +47,7 @@ pub struct ImagePipeline {
 
 impl Drop for ImagePipeline {
     fn drop(&mut self) {
-        self.shutdown_flag
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+        self.shutdown_flag.store(true, std::sync::atomic::Ordering::Relaxed);
         self.pipeline.set_state(gst::State::Null).unwrap();
     }
 }
@@ -95,9 +94,7 @@ impl ImagePipeline {
             .expect("Could not create videoconvert element.");
 
         // capsfilter to enforce RGB format in converted output
-        let rgb_caps = gst::Caps::builder("video/x-raw")
-            .field("format", "RGB")
-            .build();
+        let rgb_caps = gst::Caps::builder("video/x-raw").field("format", "RGB").build();
 
         let rgb_filter = gst::ElementFactory::make("capsfilter")
             .name("rgb_filter")
@@ -142,10 +139,7 @@ impl ImagePipeline {
     }
 
     /// sets the pipeline to the given state
-    pub fn set_state(
-        &self,
-        state: gst::State,
-    ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+    pub fn set_state(&self, state: gst::State) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         let Some(fh) = &self.frame_handler else {
             println!("Frame handler not initialized.");
             return Err(gst::StateChangeError);
@@ -199,11 +193,7 @@ impl ImagePipeline {
         ui_arc.on_toggle_play_pause({
             let pipeline_arc = pipeline_arc.clone();
             move || {
-                Self::toggle_play_pause(
-                    pipeline_arc.as_ref(),
-                    ui_weak_arc.as_ref(),
-                    frame_handler_arc.as_ref(),
-                );
+                Self::toggle_play_pause(pipeline_arc.as_ref(), ui_weak_arc.as_ref(), frame_handler_arc.as_ref());
             }
         });
 
@@ -215,9 +205,7 @@ impl ImagePipeline {
                 let selected_idx = ui_clone.get_current_video_source() as usize;
                 println!("Selected video source: {value}, index: {selected_idx}");
 
-                if Self::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone())
-                    .is_err()
-                {
+                if Self::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
                     println!("Failed to set video properties for selected source.");
                 };
             }
@@ -230,9 +218,7 @@ impl ImagePipeline {
                 let selected_idx = ui_clone.get_curr_fps() as usize;
                 println!("Selected framerate: {value}, index: {selected_idx}");
 
-                if Self::set_framerate(pipeline_arc.as_ref(), selected_idx, caps_arc.clone())
-                    .is_err()
-                {
+                if Self::set_framerate(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
                     println!("Failed to set video properties for selected source.");
                 };
             }
@@ -344,9 +330,7 @@ impl ImagePipeline {
             GstError::NoCapsFound
         })?;
 
-        let pipeline_caps = gst::Caps::builder("video/x-raw")
-            .field("framerate", framerate)
-            .build();
+        let pipeline_caps = gst::Caps::builder("video/x-raw").field("framerate", framerate).build();
 
         pipeline
             .by_name("filter")

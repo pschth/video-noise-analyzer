@@ -2,7 +2,7 @@
 
 use std::fmt::Display;
 
-use gst::prelude::*;
+use gst::{prelude::*, Device};
 
 #[derive(Debug, Clone)]
 pub struct RawSourceCaps {
@@ -88,7 +88,6 @@ impl RawSourceCaps {
                 Ok(path) => path,
             };
 
-            // print supported caps
             if let Some(caps_list) = device.caps() {
                 println!("Available v4l2 caps:");
                 for caps in caps_list.iter() {
