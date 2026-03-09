@@ -1,6 +1,6 @@
 use std::sync::{atomic::AtomicBool, Arc, Mutex, MutexGuard};
 
-use gst::{prelude::*, State};
+use gst::{caps, prelude::*, State};
 use slint::{ModelRc, SharedString, VecModel, Weak};
 use thiserror::Error;
 
@@ -200,6 +200,8 @@ impl ImagePipeline {
                 if Self::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
                     eprintln!("Failed to set video properties for selected source.");
                 };
+                // reset framerate to first index when changing the resolution
+                ui_clone.set_curr_fps(0);
             }
         });
 
