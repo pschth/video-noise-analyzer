@@ -11,14 +11,17 @@ pub struct FrameHandler {
     ui: Arc<Weak<App>>,
 }
 
+// handles the display of frames in the GUI window
 impl FrameHandler {
-    pub fn init(pipeline: &gst::Pipeline, ui: Arc<Weak<App>>) -> Self {
+    pub fn init(pipeline: &gst::Pipeline, ui: Weak<App>) -> Self {
         // set up link of image pipeline output frames to GUI
         let new_frame_callback: fn(App, Image) = |ui, new_frame| {
             if ui.get_playing() {
                 ui.set_video_frame(new_frame);
             }
         };
+
+        let ui = Arc::new(ui);
         Self::register_frame_callback(pipeline, ui.clone(), new_frame_callback)
             .expect("Failed to register new frame callback");
 

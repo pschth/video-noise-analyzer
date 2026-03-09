@@ -1,13 +1,9 @@
 use std::sync::{atomic::AtomicBool, Arc, Mutex, MutexGuard};
 
-use gst::{caps, prelude::*, State};
-use slint::{ModelRc, SharedString, VecModel, Weak};
+use gst::{prelude::*, State};
 use thiserror::Error;
 
-use crate::{
-    image_pipeline::{device_caps::RawSourceCaps, frame_handler::FrameHandler},
-    App,
-};
+use crate::image_pipeline::{device_caps::RawSourceCaps, frame_handler::FrameHandler};
 
 #[derive(Debug, Error)]
 pub enum GstError {
@@ -27,18 +23,11 @@ pub enum GstError {
     InvalidValue,
 }
 
-#[derive(Debug, Error)]
-pub enum UiError {
-    #[error("UI already initialized.")]
-    AlreadyInitialized,
-}
-
 pub struct ImagePipeline {
-    pipeline: gst::Pipeline,
-    frame_handler: Option<FrameHandler>,
-    caps: Arc<Mutex<RawSourceCaps>>,
+    pub pipeline: gst::Pipeline,
+    pub frame_handler: Option<FrameHandler>,
+    pub caps: Arc<Mutex<RawSourceCaps>>,
     shutdown_flag: AtomicBool,
-    ui: Weak<App>,
 }
 
 impl Drop for ImagePipeline {
@@ -49,7 +38,7 @@ impl Drop for ImagePipeline {
 }
 
 impl ImagePipeline {
-    pub fn new(ui: Weak<App>) -> Result<Self, GstError> {
+    pub fn new() -> Result<Self, GstError> {
         gst::init()?;
         let caps_obj = RawSourceCaps::new()?;
 
@@ -105,22 +94,12 @@ impl ImagePipeline {
         gst::Element::link_many([&source, &capsfilter, &convert, &rgb_filter, &sink])
             .expect("Failed to link elements in pipeline.");
 
-        let mut img_pipeline = ImagePipeline {
+        let img_pipeline = ImagePipeline {
             pipeline,
             caps: Arc::new(Mutex::new(caps_obj)),
             frame_handler: None,
             shutdown_flag: AtomicBool::new(false),
-            ui,
         };
-
-        // link the video controls and the frame window to the image pipeline
-        img_pipeline.link_with_gui().map_err(|e| {
-            println!("Failed to link image pipeline with GUI: {}", e);
-            GstError::Error(gst::glib::Error::new(
-                gst::glib::FileError::Failed,
-                "Failed to link image pipeline with GUI.",
-            ))
-        })?;
 
         // set image pipeline to pause state if possible
         img_pipeline
@@ -132,28 +111,19 @@ impl ImagePipeline {
 
     /// sets the pipeline to the given state
     pub fn set_state(&self, state: gst::State) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        let Some(fh) = &self.frame_handler else {
-            println!("Frame handler not initialized.");
-            return Err(gst::StateChangeError);
-        };
-        Self::set_state_cb(&self.pipeline, &self.ui, fh, state)
+        self.pipeline.set_state(state)
     }
 
     pub fn set_state_cb(
         pipeline: &gst::Pipeline,
-        ui: &Weak<App>,
         frame_handler: &FrameHandler,
         state: gst::State,
     ) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
         match pipeline.set_state(state) {
             Ok(r) => {
-                let ui = ui.upgrade().expect("Could not upgrade UI.");
                 match state {
-                    State::Playing => ui.set_playing(true),
-                    _ => {
-                        ui.set_playing(false);
-                        frame_handler.display_pause_image();
-                    }
+                    State::Playing => {}
+                    _ => frame_handler.display_pause_image(),
                 };
                 Ok(r)
             }
@@ -164,103 +134,35 @@ impl ImagePipeline {
         }
     }
 
-    /// links the gstreamer image pipeline to the GUI controls and frame display
-    fn link_with_gui(&mut self) -> Result<(), UiError> {
-        // set up link of image pipeline output frames to GUI
-        if self.frame_handler.is_some() {
-            return Err(UiError::AlreadyInitialized);
-        }
-        let ui = Arc::new(self.ui.clone());
-        self.frame_handler
-            .replace(FrameHandler::init(&self.pipeline, ui.clone()));
-
-        // set up link of image pipeline video controls to GUI
-        let pipeline_arc = Arc::new(self.pipeline.clone());
-        let ui_weak_arc = ui.clone();
-        let frame_handler_arc = Arc::new(self.frame_handler.clone().unwrap());
-        let caps_arc = self.caps.clone();
-        let ui_arc = Arc::new(ui.upgrade().expect("Could not upgrade UI."));
-
-        // set up callbacks for video controls
-        ui_arc.on_toggle_play_pause({
-            let pipeline_arc = pipeline_arc.clone();
-            move || {
-                Self::toggle_play_pause(pipeline_arc.as_ref(), ui_weak_arc.as_ref(), frame_handler_arc.as_ref());
-            }
-        });
-
-        let ui_clone = ui_arc.clone();
-        ui_arc.on_selected_video_source({
-            let pipeline_arc = pipeline_arc.clone();
-            let caps_arc = caps_arc.clone();
-            move |value| {
-                let selected_idx = ui_clone.get_current_video_source() as usize;
-                println!("Selected video source: {value}, index: {selected_idx}");
-
-                if Self::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
-                    eprintln!("Failed to set video properties for selected source.");
-                };
-                // reset framerate to first index when changing the resolution
-                ui_clone.set_curr_fps(0);
-            }
-        });
-
-        let ui_clone = ui_arc.clone();
-        ui_arc.on_selected_framerate({
-            let pipeline_arc = pipeline_arc.clone();
-            move |value| {
-                let selected_idx = ui_clone.get_curr_fps() as usize;
-                println!("Selected framerate: {value}, index: {selected_idx}");
-
-                if Self::set_framerate(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
-                    eprintln!("Failed to set video properties for selected source.");
-                };
-            }
-        });
-
-        let cap_lock = self.caps.lock().expect("Could not acquire lock");
-        let cap_vec = cap_lock.get_caps();
-        let available_sources: VecModel<SharedString> =
-            cap_vec.iter().map(|s| s.to_string_wo_framerate().into()).collect();
-        ui_arc.set_video_sources(ModelRc::new(available_sources));
-
-        let available_framerates: VecModel<SharedString> = cap_lock
-            .get_current_framerates_as_strings()
-            .iter()
-            .map(|s| s.into())
-            .collect();
-        ui_arc.set_framerates(ModelRc::new(available_framerates));
-
-        Ok(())
-    }
-
     /// gets the current state of the pipeline (playing, paused, etc.)
     fn get_current_state(pipeline: &gst::Pipeline) -> State {
         let (ret, state, pending) = pipeline.state(None);
         if ret.is_err() {
-            println!("State change failed. Continuing anyway.")
+            eprintln!("State change failed. Continuing anyway.")
         }
         println!("Current state: {state:?}, pending state: {pending:?}.");
         state
     }
 
     /// toggles between play and pause states of the pipeline
-    fn toggle_play_pause(pipeline: &gst::Pipeline, ui: &Weak<App>, frame_handler: &FrameHandler) {
+    pub fn toggle_play_pause(pipeline: &gst::Pipeline, frame_handler: &FrameHandler) -> State {
         match Self::get_current_state(pipeline) {
             State::Playing => {
-                if Self::set_state_cb(pipeline, ui, frame_handler, State::Paused).is_err() {
-                    println!("Failed to pause video.");
+                if Self::set_state_cb(pipeline, frame_handler, State::Paused).is_err() {
+                    eprintln!("Failed to pause video.");
                 };
+                return State::Paused;
             }
             _ => {
-                if Self::set_state_cb(pipeline, ui, frame_handler, State::Playing).is_err() {
-                    println!("Failed to play video.");
+                if Self::set_state_cb(pipeline, frame_handler, State::Playing).is_err() {
+                    eprintln!("Failed to play video.");
                 };
+                return State::Playing;
             }
         };
     }
 
-    fn set_video_resolution(
+    pub fn set_video_resolution(
         pipeline: &gst::Pipeline,
         cap_idx: usize,
         caps: Arc<Mutex<RawSourceCaps>>,
@@ -270,7 +172,7 @@ impl ImagePipeline {
         update_video_settings(pipeline, caps)
     }
 
-    fn set_framerate(
+    pub fn set_framerate(
         pipeline: &gst::Pipeline,
         framerate_idx: usize,
         caps: Arc<Mutex<RawSourceCaps>>,

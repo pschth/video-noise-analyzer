@@ -1,6 +1,7 @@
 mod image_pipeline;
 
-use image_pipeline::gstreamer::ImagePipeline;
+use image_pipeline::ImagePipeline;
+
 use std::error::Error;
 
 slint::slint! {
@@ -10,16 +11,13 @@ slint::slint! {
 fn main() -> Result<(), Box<dyn Error>> {
     let ui = App::new()?;
 
-    let pipeline = ImagePipeline::new(ui.as_weak()).expect("Failed to create image pipeline");
-
-    // let caps = pipeline.get_device_capabilities();
-    // for (idx, cap) in caps.iter().enumerate() {
-    //     println!("Device cap {idx}: {cap}");
-    // }
+    let mut img_pipe = ImagePipeline::new().expect("Failed to create image pipeline");
+    ui.link_with_image_pipeline(&mut img_pipe)
+        .expect("Failed to link image pipeline to GUI.");
 
     ui.run()?;
 
-    let _ = pipeline.set_state(gst::State::Null);
+    let _ = img_pipe.set_state(gst::State::Null);
 
     Ok(())
 }
