@@ -65,6 +65,11 @@ component FirstRow inherits Rectangle {
 }
 
 component SecondRow inherits Rectangle {
+
+    in-out property <string> output_dir <=> out_dir_box.text;
+
+    callback choose-output-dir <=> cd.choose-output-dir;
+
     HorizontalLayout {
         alignment: stretch;
         spacing: 5px;
@@ -76,7 +81,9 @@ component SecondRow inherits Rectangle {
 
         VerticalLayout {
             alignment: center;
-            InputTextBox { }
+            out_dir_box := InputTextBox {
+                text: "/home/root/foo";
+            }
         }
 
         cd := ChooseDirButton { }
@@ -94,6 +101,10 @@ export component VideoControls inherits Rectangle {
     pure callback toggle-play-pause <=> first_row.toggle-play-pause;
     callback selected-video-source <=> first_row.selected-video-source;
     callback selected-framerate <=> first_row.selected-framerate;
+
+    in-out property <string> output_dir <=> second_row.output_dir;
+
+    callback choose-output-dir <=> second_row.choose-output-dir;
 
     VerticalLayout {
         first_row := FirstRow { }

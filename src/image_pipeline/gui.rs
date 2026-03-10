@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use gst::{Pipeline, State};
+use rfd::FileDialog;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use thiserror::Error;
 
@@ -43,6 +44,7 @@ impl App {
         ui.init_on_toggle_play_pause(pipe.clone(), fh.clone());
         ui.init_on_selected_video_source(pipe.clone(), &image_pipeline);
         ui.init_on_selected_framerate(pipe.clone(), &image_pipeline);
+        ui.init_on_choose_output_dir();
     }
 
     fn init_on_toggle_play_pause(self: &Arc<App>, pipe: Arc<Pipeline>, fh: Arc<FrameHandler>) {
@@ -85,6 +87,18 @@ impl App {
                 if ImagePipeline::set_framerate(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
                     eprintln!("Failed to set video properties for selected source.");
                 };
+            }
+        });
+    }
+
+    fn init_on_choose_output_dir(self: &Arc<App>) {
+        self.on_choose_output_dir({
+            let ui = self.clone();
+            move || {
+                let dir = FileDialog::new().set_directory("/").pick_folder();
+                if dir.is_some() {
+                    ui.set_output_dir(dir.unwrap().to_string_lossy().to_string().into());
+                }
             }
         });
     }

@@ -67,7 +67,7 @@ export component ChooseDirButton inherits Rectangle {
 
     in property <string> text;
 
-    pure callback choose-output-dir();
+    callback choose-output-dir();
 
     width: 30px;
     height: 30px;
@@ -94,13 +94,15 @@ export component ChooseDirButton inherits Rectangle {
 
 export component InputTextBox inherits Rectangle {
 
+    in-out property <string> text <=> t.text;
+
     clip: true;
     height: 20px;
     background: white;
     border-color: black;
     border-width: 1px;
 
-    TextInput {
+    t := TextInput {
         text: "Edit me";
         color: black;
         vertical-alignment: center;

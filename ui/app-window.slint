@@ -15,6 +15,10 @@ export component App inherits Window {
     callback selected-video-source <=> controls.selected-video-source;
     callback selected-framerate <=> controls.selected-framerate;
 
+    in-out property <string> output_dir <=> controls.output_dir;
+
+    callback choose-output-dir <=> controls.choose-output-dir;
+
     preferred-width: 640px;
     preferred-height: 480px;
     min-width: 640px;
