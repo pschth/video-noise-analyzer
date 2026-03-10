@@ -26,7 +26,7 @@ impl FrameHandler {
             .expect("Failed to register new frame callback");
 
         // load pause image (cat)
-        let cat_path = Path::new("ui/cat.jpg");
+        let cat_path = Path::new("ui/assets/cat.jpg");
         let Ok(cat) = Image::load_from_path(cat_path) else {
             panic!("No cat found. Terrible!");
         };

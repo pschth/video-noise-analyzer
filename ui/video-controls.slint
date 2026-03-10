@@ -1,51 +1,16 @@
 import { Button, ScrollView, ComboBox } from "std-widgets.slint";
 import { Styles } from "styles.slint";
+import {
+    VideoComboBox,
+    VideoButton,
+    VideoText,
+    InputTextBox,
+    ChooseDirButton,
+} from "components.slint";
 
-component VideoText inherits Text {
-    text: "example text";
-    font-size: 12px;
-    font-weight: 600;
-    color: Styles.video_color;
-}
 
-component VideoButton inherits Rectangle {
 
-    in property <string> text;
-
-    pure callback toggle-play-pause();
-
-    width: Math.max(content.width + Styles.padding * 2, 100px);
-    height: content.height + Styles.padding * 2;
-    border-radius: 8px;
-    background: Styles.video_gradient;
-    border-width: ta.has-hover ? 2px : 1px;
-    border-color: Styles.video_color;
-
-    content := VideoText {
-        text: text;
-        font-weight: ta.has-hover ? 1000 : 600;
-    }
-
-    ta := TouchArea {
-        clicked => toggle-play-pause();
-    }
-}
-
-component VideoComboBox inherits Window {
-    background: transparent;
-
-    in-out property <int> current-index <=> cb.current-index;
-
-    callback selected <=> cb.selected;
-
-    in property <[string]> options;
-    cb := ComboBox {
-        model: options;
-    }
-}
-
-export component VideoControls inherits Window {
-
+component FirstRow inherits Rectangle {
     in property <[string]> video_sources <=> sources.options;
     in-out property <int> curr_video_source <=> sources.current-index;
     in property <[string]> fps <=> framerates.options;
@@ -96,5 +61,43 @@ export component VideoControls inherits Window {
                 }
             }
         }
+    }
+}
+
+component SecondRow inherits Rectangle {
+    HorizontalLayout {
+        alignment: stretch;
+        spacing: 5px;
+        vt := VideoText {
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            text: "Output directory:";
+        }
+
+        VerticalLayout {
+            alignment: center;
+            InputTextBox { }
+        }
+
+        cd := ChooseDirButton { }
+    }
+}
+
+export component VideoControls inherits Rectangle {
+
+    in property <[string]> video_sources <=> first_row.video_sources;
+    in-out property <int> curr_video_source <=> first_row.curr_video_source;
+    in property <[string]> fps <=> first_row.fps;
+    in-out property <int> curr_fps <=> first_row.curr_fps;
+    in property <bool> playing <=> first_row.playing;
+
+    pure callback toggle-play-pause <=> first_row.toggle-play-pause;
+    callback selected-video-source <=> first_row.selected-video-source;
+    callback selected-framerate <=> first_row.selected-framerate;
+
+    VerticalLayout {
+        first_row := FirstRow { }
+
+        second_row := SecondRow { }
     }
 }

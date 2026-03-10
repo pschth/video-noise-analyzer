@@ -1,0 +1,117 @@
+import { Styles } from "styles.slint";
+import { ComboBox } from "std-widgets.slint";
+
+export component VideoWindow inherits Rectangle {
+
+    min-width: 640px;
+    min-height: 360px;
+    border-radius: 8px;
+    background: transparent;
+    border-width: 1px;
+    border-color: Styles.video_color;
+
+    in property <int> buffering_percent;
+    in property <image> video-frame <=> image.source;
+    image := Image {
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source: @image-url("assets/cat.jpg");
+    }
+}
+
+export component VideoComboBox inherits Rectangle {
+    background: transparent;
+
+    in-out property <int> current-index <=> cb.current-index;
+
+    callback selected <=> cb.selected;
+
+    in property <[string]> options;
+    cb := ComboBox {
+        model: options;
+    }
+}
+
+export component VideoText inherits Text {
+    text: "example text";
+    font-size: 12px;
+    font-weight: 600;
+    color: Styles.video_color;
+}
+
+export component VideoButton inherits Rectangle {
+
+    in property <string> text;
+
+    pure callback toggle-play-pause();
+
+    width: Math.max(content.width + Styles.padding * 2, 100px);
+    height: content.height + Styles.padding * 2;
+    border-radius: 8px;
+    background: Styles.video_gradient;
+    border-width: ta.has-hover ? 2px : 1px;
+    border-color: Styles.video_color;
+
+    content := VideoText {
+        text: text;
+        font-weight: ta.has-hover ? 1000 : 600;
+    }
+
+    ta := TouchArea {
+        clicked => toggle-play-pause();
+    }
+}
+
+export component ChooseDirButton inherits Rectangle {
+
+    in property <string> text;
+
+    pure callback choose-output-dir();
+
+    width: 30px;
+    height: 30px;
+
+    Image {
+        width: parent.width;
+        height: parent.height;
+
+        source: @image-url("assets/dir.png");
+        accessible-label: "Choose output directory";
+    }
+
+    Rectangle {
+        border-width: ta.has-hover ? 2px : 1px;
+        border-color: #000;
+        opacity: ta.pressed ? 0.7 : 1.0;
+        background: ta.pressed ? darkgray : transparent;
+    }
+
+    ta := TouchArea {
+        clicked => choose-output-dir();
+    }
+}
+
+export component InputTextBox inherits Rectangle {
+
+    clip: true;
+    height: 20px;
+    background: white;
+    border-color: black;
+    border-width: 1px;
+
+    TextInput {
+        text: "Edit me";
+        color: black;
+        vertical-alignment: center;
+
+        private property <length> margin: 1rem;
+        cursor-position-changed(cursor-position) => {
+            if cursor-position.x + self.x < margin {
+                self.x = - cursor-position.x + margin;
+            } else if cursor-position.x + self.x > parent.width - margin - self.text-cursor-width {
+                self.x = parent.width - cursor-position.x - margin - self.text-cursor-width;
+            }
+        }
+    }
+}
