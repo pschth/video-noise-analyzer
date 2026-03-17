@@ -42,6 +42,7 @@ impl App {
 
         // set up callbacks for video controls
         ui.init_on_toggle_play_pause(pipe.clone(), fh.clone());
+        ui.init_on_take_screenshot(fh.clone());
         ui.init_on_selected_video_source(pipe.clone(), &image_pipeline);
         ui.init_on_selected_framerate(pipe.clone(), &image_pipeline);
         ui.init_on_choose_output_dir();
@@ -55,6 +56,10 @@ impl App {
                 _ => ui.set_playing(false),
             }
         });
+    }
+
+    fn init_on_take_screenshot(self: &Arc<App>, fh: Arc<FrameHandler>) {
+        self.on_take_screenshot(move || fh.take_screenshot());
     }
 
     fn init_on_selected_video_source(self: &Arc<App>, pipe: Arc<Pipeline>, img: &ImagePipeline) {

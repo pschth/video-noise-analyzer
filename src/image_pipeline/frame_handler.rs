@@ -1,6 +1,12 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
+use chrono::prelude::*;
 use gst::{glib::object::Cast, prelude::GstBinExt};
+use image::RgbImage;
 use slint::{Image, Weak};
 
 use crate::App;
@@ -40,6 +46,37 @@ impl FrameHandler {
             .upgrade()
             .expect("Could not upgrade UI.")
             .set_video_frame(self.cat.clone());
+    }
+
+    pub fn take_screenshot(&self) {
+        let ui = self.ui.upgrade().expect("Could not upgrade UI.");
+        if !ui.get_playing() {
+            println!("No Video playing.");
+            return;
+        }
+
+        let output_dir = PathBuf::from(ui.get_output_dir().as_str());
+        if !output_dir.exists() {
+            if let Err(e) = fs::create_dir_all(&output_dir) {
+                eprintln!("Could not create screenshot output directory: {e}");
+                return;
+            };
+            println!("Created screenshot output directory {output_dir:?}.")
+        }
+
+        let Some(rgb_image) = get_frame_as_rgbimage(&ui) else {
+            return;
+        };
+
+        let mut file_name = Local::now().format("%Y-%m-%d_%H:%M:%S%.3f").to_string();
+        file_name.push_str("_screenshot.png");
+        let output_name = output_dir.join(&file_name);
+
+        if let Err(e) = rgb_image.save(&output_name) {
+            eprintln!("Saving screenshot failed: {e}.");
+            return;
+        }
+        println!("Screenshot successfully saved to {output_name:?}.");
     }
 
     fn register_frame_callback<AppHandle: slint::ComponentHandle + 'static>(
@@ -90,4 +127,21 @@ impl FrameHandler {
         );
         Ok(())
     }
+}
+
+#[inline]
+fn get_frame_as_rgbimage(ui: &App) -> Option<RgbImage> {
+    let frame = ui.get_video_frame();
+    let Some(frame_buf) = frame.to_rgb8() else {
+        eprintln!("Could not obtain pixel buffer from video frame.");
+        return None;
+    };
+
+    let frame_size = frame.size();
+    let Some(rgb_image) = RgbImage::from_raw(frame_size.width, frame_size.height, frame_buf.as_bytes().to_vec()) else {
+        eprintln!("Video frame not convertable to RGB image.");
+        return None;
+    };
+
+    Some(rgb_image)
 }

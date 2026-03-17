@@ -17,7 +17,8 @@ component FirstRow inherits Rectangle {
     in-out property <int> curr_fps <=> framerates.current-index;
     in property <bool> playing: false;
 
-    pure callback toggle-play-pause <=> play_button.toggle-play-pause;
+    pure callback toggle-play-pause <=> play_button.clicked;
+    pure callback take-screenshot <=> screenshot_button.clicked;
     callback selected-video-source <=> sources.selected;
     callback selected-framerate <=> framerates.selected;
 
@@ -99,6 +100,7 @@ export component VideoControls inherits Rectangle {
     in property <bool> playing <=> first_row.playing;
 
     pure callback toggle-play-pause <=> first_row.toggle-play-pause;
+    pure callback take-screenshot <=> first_row.take-screenshot;
     callback selected-video-source <=> first_row.selected-video-source;
     callback selected-framerate <=> first_row.selected-framerate;
 

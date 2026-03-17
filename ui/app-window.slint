@@ -12,6 +12,7 @@ export component App inherits Window {
     in property <bool> playing <=> controls.playing;
 
     pure callback toggle-play-pause <=> controls.toggle-play-pause;
+    pure callback take-screenshot <=> controls.take-screenshot;
     callback selected-video-source <=> controls.selected-video-source;
     callback selected-framerate <=> controls.selected-framerate;
 

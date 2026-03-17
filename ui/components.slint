@@ -44,7 +44,7 @@ export component VideoButton inherits Rectangle {
 
     in property <string> text;
 
-    pure callback toggle-play-pause();
+    pure callback clicked();
 
     width: Math.max(content.width + Styles.padding * 2, 100px);
     height: content.height + Styles.padding * 2;
@@ -59,7 +59,7 @@ export component VideoButton inherits Rectangle {
     }
 
     ta := TouchArea {
-        clicked => toggle-play-pause();
+        clicked => clicked();
     }
 }
 
