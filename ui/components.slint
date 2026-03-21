@@ -60,13 +60,23 @@ export component VideoWindow inherits Rectangle {
     in-out property <length> noise_w;
     in-out property <length> noise_h;
 
-    content := ContentWindow { }
+    content := ContentWindow {
+        changed ta_pressed => {
+            if (self.ta_pressed) {
+                root.noise_x = self.ta_x;
+                root.noise_y = self.ta_y;
+            } else {
+                root.noise_w = self.ta_x - root.noise_x;
+                root.noise_h = self.ta_y - root.noise_y;
+            }
+        }
+    }
 
     noise := Rectangle {
-        x: content.ta_pressed ? content.ta_x : root.noise_x;
-        y: content.ta_pressed ? content.ta_y : root.noise_y;
-        width: root.noise_w;
-        height: root.noise_h;
+        x: root.noise_x;
+        y: root.noise_y;
+        width: content.ta_pressed ? content.ta_x - root.noise_x : root.noise_w;
+        height: content.ta_pressed ? content.ta_y - root.noise_y : root.noise_h;
         opacity: content.ta_pressed ? 0.7 : 0.2;
         background: black;
     }
@@ -149,6 +159,8 @@ export component InputTextBox inherits Rectangle {
     in-out property <string> text <=> t.text;
     in property <InputType> input_type <=> t.input-type;
 
+    callback accepted <=> t.accepted;
+
     clip: true;
     height: 20px;
     background: white;
@@ -177,6 +189,8 @@ export component VideoInputBox inherits Rectangle {
     in property <length> boxwidth <=> box.max-width;
     in-out property <string> val <=> box.text;
     in property <InputType> input_type <=> box.input-type;
+
+    callback accepted <=> box.accepted;
 
     HorizontalLayout {
         vt := VideoText {

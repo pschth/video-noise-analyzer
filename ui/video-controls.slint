@@ -91,15 +91,28 @@ component ThirdRow inherits Rectangle {
     in-out property <length> noise_w: w.val.to-float() * 1px;
     in-out property <length> noise_h: h.val.to-float() * 1px;
 
+    changed noise_x => {
+        x.val = noise_x / 1px;
+    }
+    changed noise_y => {
+        y.val = noise_y / 1px;
+    }
+    changed noise_w => {
+        w.val = noise_w / 1px;
+    }
+    changed noise_h => {
+        h.val = noise_h / 1px;
+    }
+
     HorizontalLayout {
         alignment: stretch;
         spacing: 5px;
         x := VideoInputBox {
             name: "x left:";
             boxwidth: 20mm;
-            val: 50;
+            val: 0;
             input_type: number;
-            changed val => {
+            accepted => {
                 root.noise_x = self.val.to-float() * 1px;
             }
         }
@@ -107,9 +120,9 @@ component ThirdRow inherits Rectangle {
         y := VideoInputBox {
             name: "y top:";
             boxwidth: 20mm;
-            val: "";
+            val: 0;
             input_type: number;
-            changed val => {
+            accepted => {
                 root.noise_y = self.val.to-float() * 1px;
             }
         }
@@ -117,9 +130,9 @@ component ThirdRow inherits Rectangle {
         w := VideoInputBox {
             name: "width:";
             boxwidth: 20mm;
-            val: "";
+            val: 0;
             input_type: number;
-            changed val => {
+            accepted => {
                 root.noise_w = self.val.to-float() * 1px;
             }
         }
@@ -127,9 +140,9 @@ component ThirdRow inherits Rectangle {
         h := VideoInputBox {
             name: "height:";
             boxwidth: 20mm;
-            val: "";
+            val: 0;
             input_type: number;
-            changed val => {
+            accepted => {
                 root.noise_h = self.val.to-float() * 1px;
             }
         }
