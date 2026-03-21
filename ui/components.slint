@@ -1,5 +1,47 @@
 import { Styles } from "styles.slint";
-import { ComboBox } from "std-widgets.slint";
+import { ComboBox, VerticalBox } from "std-widgets.slint";
+
+component ContentWindow inherits Rectangle {
+
+    out property <length> ta_x <=> ta.mouse-x;
+    out property <length> ta_y <=> ta.mouse-y;
+    out property <bool> ta_pressed <=> ta.pressed;
+    in property <image> image <=> image.source;
+
+    // limits TouchArea to image size
+    property <length> scale: {
+        min(image.width / image.source.width, image.height / image.source.height);
+    }
+    property <length> scaled_image_width: {
+        image.source.width * scale
+    }
+    out property <length> x_left: {
+        image.x + (image.width - scaled_image_width) / 2.0
+    }
+    out property <length> x_right: {
+        x_left + scaled_image_width
+    }
+    property <length> scaled_image_height: {
+        image.source.height * scale
+    }
+    out property <length> y_top: {
+        image.y + (image.height - scaled_image_height) / 2.0
+    }
+    out property <length> y_bottom: {
+        y_top + scaled_image_height
+    }
+
+    ta := TouchArea {
+        mouse-cursor: ta.mouse-x >= x_left && ta.mouse-x <= x_right && ta.mouse-y >= y_top && ta.mouse-y <= y_bottom ? crosshair : default;
+    }
+
+    image := Image {
+        width: parent.width;
+        height: parent.height;
+        image-fit: contain;
+        source: @image-url("assets/cat.jpg");
+    }
+}
 
 export component VideoWindow inherits Rectangle {
 
@@ -11,12 +53,22 @@ export component VideoWindow inherits Rectangle {
     border-color: Styles.video_color;
 
     in property <int> buffering_percent;
-    in property <image> video-frame <=> image.source;
-    image := Image {
-        width: parent.width;
-        height: parent.height;
-        image-fit: contain;
-        source: @image-url("assets/cat.jpg");
+    in property <image> video-frame <=> content.image;
+
+    in-out property <length> noise_x;
+    in-out property <length> noise_y;
+    in-out property <length> noise_w;
+    in-out property <length> noise_h;
+
+    content := ContentWindow { }
+
+    noise := Rectangle {
+        x: content.ta_pressed ? content.ta_x : root.noise_x;
+        y: content.ta_pressed ? content.ta_y : root.noise_y;
+        width: root.noise_w;
+        height: root.noise_h;
+        opacity: content.ta_pressed ? 0.7 : 0.2;
+        background: black;
     }
 }
 
@@ -95,6 +147,7 @@ export component ChooseDirButton inherits Rectangle {
 export component InputTextBox inherits Rectangle {
 
     in-out property <string> text <=> t.text;
+    in property <InputType> input_type <=> t.input-type;
 
     clip: true;
     height: 20px;
@@ -113,6 +166,29 @@ export component InputTextBox inherits Rectangle {
                 self.x = - cursor-position.x + margin;
             } else if cursor-position.x + self.x > parent.width - margin - self.text-cursor-width {
                 self.x = parent.width - cursor-position.x - margin - self.text-cursor-width;
+            }
+        }
+    }
+}
+
+export component VideoInputBox inherits Rectangle {
+
+    in property <string> name <=> vt.text;
+    in property <length> boxwidth <=> box.max-width;
+    in-out property <string> val <=> box.text;
+    in property <InputType> input_type <=> box.input-type;
+
+    HorizontalLayout {
+        vt := VideoText {
+            vertical-alignment: center;
+            horizontal-alignment: left;
+            text: "text:";
+        }
+
+        VerticalLayout {
+            alignment: center;
+            box := InputTextBox {
+                text: "0";
             }
         }
     }

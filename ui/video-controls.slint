@@ -6,6 +6,7 @@ import {
     VideoText,
     InputTextBox,
     ChooseDirButton,
+    VideoInputBox,
 } from "components.slint";
 
 
@@ -67,27 +68,71 @@ component FirstRow inherits Rectangle {
 
 component SecondRow inherits Rectangle {
 
-    in-out property <string> output_dir <=> out_dir_box.text;
+    in-out property <string> output_dir <=> ib.val;
 
     callback choose-output-dir <=> cd.choose-output-dir;
 
     HorizontalLayout {
         alignment: stretch;
         spacing: 5px;
-        vt := VideoText {
-            vertical-alignment: center;
-            horizontal-alignment: left;
-            text: "Output directory:";
-        }
-
-        VerticalLayout {
-            alignment: center;
-            out_dir_box := InputTextBox {
-                text: "/home/root/foo";
-            }
+        ib := VideoInputBox {
+            name: "Output directory:";
+            val: "/home/root/foo";
         }
 
         cd := ChooseDirButton { }
+    }
+}
+
+component ThirdRow inherits Rectangle {
+
+    in-out property <length> noise_x: x.val.to-float() * 1px;
+    in-out property <length> noise_y: y.val.to-float() * 1px;
+    in-out property <length> noise_w: w.val.to-float() * 1px;
+    in-out property <length> noise_h: h.val.to-float() * 1px;
+
+    HorizontalLayout {
+        alignment: stretch;
+        spacing: 5px;
+        x := VideoInputBox {
+            name: "x left:";
+            boxwidth: 20mm;
+            val: 50;
+            input_type: number;
+            changed val => {
+                root.noise_x = self.val.to-float() * 1px;
+            }
+        }
+
+        y := VideoInputBox {
+            name: "y top:";
+            boxwidth: 20mm;
+            val: "";
+            input_type: number;
+            changed val => {
+                root.noise_y = self.val.to-float() * 1px;
+            }
+        }
+
+        w := VideoInputBox {
+            name: "width:";
+            boxwidth: 20mm;
+            val: "";
+            input_type: number;
+            changed val => {
+                root.noise_w = self.val.to-float() * 1px;
+            }
+        }
+
+        h := VideoInputBox {
+            name: "height:";
+            boxwidth: 20mm;
+            val: "";
+            input_type: number;
+            changed val => {
+                root.noise_h = self.val.to-float() * 1px;
+            }
+        }
     }
 }
 
@@ -108,9 +153,16 @@ export component VideoControls inherits Rectangle {
 
     callback choose-output-dir <=> second_row.choose-output-dir;
 
+    in-out property <length> noise_x <=> third_row.noise_x;
+    in-out property <length> noise_y <=> third_row.noise_y;
+    in-out property <length> noise_h <=> third_row.noise_h;
+    in-out property <length> noise_w <=> third_row.noise_w;
+
     VerticalLayout {
         first_row := FirstRow { }
 
         second_row := SecondRow { }
+
+        third_row := ThirdRow { }
     }
 }

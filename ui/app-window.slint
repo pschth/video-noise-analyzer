@@ -29,8 +29,24 @@ export component App inherits Window {
 
     VerticalLayout {
         spacing: 5px;
-        image := VideoWindow { }
 
-        controls := VideoControls { }
+        in-out property <length> noise_x;
+        in-out property <length> noise_y;
+        in-out property <length> noise_w;
+        in-out property <length> noise_h;
+
+        image := VideoWindow {
+            noise_x <=> parent.noise_x;
+            noise_y <=> parent.noise_y;
+            noise_w <=> parent.noise_w;
+            noise_h <=> parent.noise_h;
+        }
+
+        controls := VideoControls {
+            noise_x <=> parent.noise_x;
+            noise_y <=> parent.noise_y;
+            noise_w <=> parent.noise_w;
+            noise_h <=> parent.noise_h;
+        }
     }
 }
