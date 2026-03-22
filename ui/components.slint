@@ -3,6 +3,11 @@ import { ComboBox, VerticalBox } from "std-widgets.slint";
 
 component ContentWindow inherits Rectangle {
 
+    border-radius: 8px;
+    background: transparent;
+    border-width: 1px;
+    border-color: Styles.video_color;
+
     in property <image> image <=> image.source;
     out property <bool> ta_pressed <=> ta.pressed;
 
@@ -64,15 +69,7 @@ component ContentWindow inherits Rectangle {
     }
 }
 
-export component VideoWindow inherits Rectangle {
-
-    min-width: 640px;
-    min-height: 360px;
-    border-radius: 8px;
-    background: transparent;
-    border-width: 1px;
-    border-color: Styles.video_color;
-    clip: true;
+export component VideoWindow inherits HorizontalLayout {
 
     in property <int> buffering_percent;
     in property <image> video-frame <=> content.image;
@@ -142,32 +139,37 @@ export component VideoWindow inherits Rectangle {
         calc_size(root.origin_noise_y, content.img_y, content.image.height) * content.scale / 1px;
     }
 
-    content := ContentWindow {
-        // select noise window
-        changed ta_pressed => {
-            if (self.ta_pressed) {
-                // button down updates the origin of the noise window
-                root.origin_noise_x = self.img_x;
-                root.origin_noise_y = self.img_y;
-                root.origin_gui_x = self.gui_x;
-                root.origin_gui_y = self.gui_y;
-            } else {
-                // button up updates the noise window
-                root.noise_x = calc_pos(root.origin_noise_x, self.img_x, self.image.width);
-                root.noise_y = calc_pos(root.origin_noise_y, self.img_y, self.image.height);
-                root.noise_w = calc_size(root.origin_noise_x, self.img_x, self.image.width);
-                root.noise_h = calc_size(root.origin_noise_y, self.img_y, self.image.height);
+    Rectangle {
+        content := ContentWindow {
+            width <=> root.width;
+            height <=> root.height;
+
+            // select noise window
+            changed ta_pressed => {
+                if (self.ta_pressed) {
+                    // button down updates the origin of the noise window
+                    root.origin_noise_x = self.img_x;
+                    root.origin_noise_y = self.img_y;
+                    root.origin_gui_x = self.gui_x;
+                    root.origin_gui_y = self.gui_y;
+                } else {
+                    // button up updates the noise window
+                    root.noise_x = calc_pos(root.origin_noise_x, self.img_x, self.image.width);
+                    root.noise_y = calc_pos(root.origin_noise_y, self.img_y, self.image.height);
+                    root.noise_w = calc_size(root.origin_noise_x, self.img_x, self.image.width);
+                    root.noise_h = calc_size(root.origin_noise_y, self.img_y, self.image.height);
+                }
             }
         }
-    }
 
-    noise := Rectangle {
-        x: content.ta_pressed ? calc_gui_x() : root.gui_x;
-        y: content.ta_pressed ? calc_gui_y() : root.gui_y;
-        width: content.ta_pressed ? calc_gui_w() : root.gui_w;
-        height: content.ta_pressed ? calc_gui_h() : root.gui_h;
-        opacity: content.ta_pressed ? 0.7 : 0.2;
-        background: black;
+        noise := Rectangle {
+            x: content.ta_pressed ? calc_gui_x() : root.gui_x;
+            y: content.ta_pressed ? calc_gui_y() : root.gui_y;
+            width: content.ta_pressed ? calc_gui_w() : root.gui_w;
+            height: content.ta_pressed ? calc_gui_h() : root.gui_h;
+            opacity: content.ta_pressed ? 0.7 : 0.2;
+            background: black;
+        }
     }
 }
 
@@ -248,7 +250,6 @@ export component InputTextBox inherits Rectangle {
     in-out property <string> text <=> t.text;
     in property <InputType> input_type <=> t.input-type;
 
-    callback accepted <=> t.accepted;
     callback edited <=> t.edited;
 
     clip: true;
@@ -256,6 +257,7 @@ export component InputTextBox inherits Rectangle {
     background: white;
     border-color: black;
     border-width: 1px;
+    preferred-width <=> t.preferred-width;
 
     t := TextInput {
         text: "Edit me";
@@ -276,14 +278,15 @@ export component InputTextBox inherits Rectangle {
 export component VideoInputBox inherits Rectangle {
 
     in property <string> name <=> vt.text;
-    in property <length> boxwidth <=> box.max-width;
+    in property <length> boxwidth <=> box.preferred-width;
+    in property <LayoutAlignment> alignment <=> h.alignment;
     in-out property <string> val <=> box.text;
     in property <InputType> input_type <=> box.input-type;
 
-    callback accepted <=> box.accepted;
     callback edited <=> box.edited;
 
-    HorizontalLayout {
+    h := HorizontalLayout {
+        alignment: start;
         vt := VideoText {
             vertical-alignment: center;
             horizontal-alignment: left;
@@ -297,4 +300,10 @@ export component VideoInputBox inherits Rectangle {
             }
         }
     }
+}
+
+export component MetricText inherits Text {
+    font-weight: 700;
+    preferred-width: 150px;
+    color: Styles.video_color;
 }

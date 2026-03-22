@@ -22,12 +22,13 @@ export component App inherits Window {
 
     preferred-width: 640px;
     preferred-height: 480px;
-    min-width: 640px;
-    min-height: 100px;
+    min-width: 320px;
+    min-height: 240px;
     title: "Video Noise Analyzer";
     background: #BBBBBBFF;
 
-    VerticalLayout {
+    v := VerticalLayout {
+        alignment: end;
         spacing: 5px;
 
         // for linking noise selection boxes with noise selection window

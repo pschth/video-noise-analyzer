@@ -7,11 +7,12 @@ import {
     InputTextBox,
     ChooseDirButton,
     VideoInputBox,
+    MetricText,
 } from "components.slint";
 
 
 
-component FirstRow inherits Rectangle {
+component FirstRow inherits HorizontalLayout {
     in property <[string]> video_sources <=> sources.options;
     in-out property <int> curr_video_source <=> sources.current-index;
     in property <[string]> fps <=> framerates.options;
@@ -66,7 +67,7 @@ component FirstRow inherits Rectangle {
     }
 }
 
-component SecondRow inherits Rectangle {
+component SecondRow inherits HorizontalLayout {
 
     in-out property <string> output_dir <=> ib.val;
 
@@ -76,6 +77,7 @@ component SecondRow inherits Rectangle {
         alignment: stretch;
         spacing: 5px;
         ib := VideoInputBox {
+            alignment <=> parent.alignment;
             name: "Output directory:";
             val: "/home/root/foo";
         }
@@ -84,7 +86,7 @@ component SecondRow inherits Rectangle {
     }
 }
 
-component ThirdRow inherits Rectangle {
+component ThirdRow inherits HorizontalLayout {
 
     in-out property <length> noise_x: x.val.to-float() * 1px;
     in-out property <length> noise_y: y.val.to-float() * 1px;
@@ -105,7 +107,7 @@ component ThirdRow inherits Rectangle {
     }
 
     HorizontalLayout {
-        alignment: stretch;
+        alignment: start;
         spacing: 5px;
         x := VideoInputBox {
             name: "x left:";
@@ -149,7 +151,37 @@ component ThirdRow inherits Rectangle {
     }
 }
 
-export component VideoControls inherits Rectangle {
+component FourthRow inherits HorizontalLayout {
+    VerticalLayout {
+
+        HorizontalLayout {
+            Rectangle {
+                height: 20px;
+            }
+        }
+
+        HorizontalLayout {
+            alignment: start;
+            MetricText {
+                text: "Temporal noise: ";
+            }
+
+            temporal_noise := MetricText {
+                text: "xx";
+            }
+
+            MetricText {
+                text: "Fixed pattern noise: ";
+            }
+
+            fixed_pattern_noise := MetricText {
+                text: "xx";
+            }
+        }
+    }
+}
+
+export component VideoControls inherits HorizontalLayout {
 
     in property <[string]> video_sources <=> first_row.video_sources;
     in-out property <int> curr_video_source <=> first_row.curr_video_source;
@@ -177,5 +209,7 @@ export component VideoControls inherits Rectangle {
         second_row := SecondRow { }
 
         third_row := ThirdRow { }
+
+        fourth_row := FourthRow { }
     }
 }
