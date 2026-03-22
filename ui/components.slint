@@ -3,36 +3,54 @@ import { ComboBox, VerticalBox } from "std-widgets.slint";
 
 component ContentWindow inherits Rectangle {
 
-    out property <length> ta_x <=> ta.mouse-x;
-    out property <length> ta_y <=> ta.mouse-y;
-    out property <bool> ta_pressed <=> ta.pressed;
     in property <image> image <=> image.source;
+    out property <bool> ta_pressed <=> ta.pressed;
+
+    // actual cursor positions in the GUI
+    out property <length> gui_x:
+    {
+        max(self.x_left, min(self.x_right, ta.mouse-x))
+    }
+
+    out property <length> gui_y:
+    {
+        max(self.y_top, min(self.y_bottom, ta.mouse-y))
+    }
+
+    // scaled positions that correspond to the real image size
+    out property <length> img_x: {
+        ((ta.mouse-x - x_left) / scale).round() * 1px
+    }
+    out property <length> img_y: {
+        ((ta.mouse-y - y_top) / scale).round() * 1px
+    }
 
     // limits TouchArea to image size
-    property <length> scale: {
+    out property <length> scale: {
         min(image.width / image.source.width, image.height / image.source.height);
     }
-    property <length> scaled_image_width: {
+    property <length> gui_image_width: {
         image.source.width * scale
     }
     out property <length> x_left: {
-        image.x + (image.width - scaled_image_width) / 2.0
+        image.x + (image.width - gui_image_width) / 2.0
     }
-    out property <length> x_right: {
-        x_left + scaled_image_width
+    property <length> x_right: {
+        x_left + gui_image_width
     }
-    property <length> scaled_image_height: {
+    property <length> gui_image_height: {
         image.source.height * scale
     }
     out property <length> y_top: {
-        image.y + (image.height - scaled_image_height) / 2.0
+        image.y + (image.height - gui_image_height) / 2.0
     }
-    out property <length> y_bottom: {
-        y_top + scaled_image_height
+    property <length> y_bottom: {
+        y_top + gui_image_height
     }
 
-    ta := TouchArea {
-        mouse-cursor: ta.mouse-x >= x_left && ta.mouse-x <= x_right && ta.mouse-y >= y_top && ta.mouse-y <= y_bottom ? crosshair : default;
+    pure callback in_image_boundary() -> bool;
+    in_image_boundary() => {
+        ta.mouse-x >= x_left && ta.mouse-x <= x_right && ta.mouse-y >= y_top && ta.mouse-y <= y_bottom
     }
 
     image := Image {
@@ -40,6 +58,9 @@ component ContentWindow inherits Rectangle {
         height: parent.height;
         image-fit: contain;
         source: @image-url("assets/cat.jpg");
+        ta := TouchArea {
+            mouse-cursor: in_image_boundary() ? crosshair : default;
+        }
     }
 }
 
@@ -51,6 +72,7 @@ export component VideoWindow inherits Rectangle {
     background: transparent;
     border-width: 1px;
     border-color: Styles.video_color;
+    clip: true;
 
     in property <int> buffering_percent;
     in property <image> video-frame <=> content.image;
@@ -60,23 +82,73 @@ export component VideoWindow inherits Rectangle {
     in-out property <length> noise_w;
     in-out property <length> noise_h;
 
+    property <length> origin_noise_x;
+    property <length> origin_noise_y;
+    property <length> origin_gui_x;
+    property <length> origin_gui_y;
+    property <length> gui_x;
+    property <length> gui_y;
+    property <length> gui_w;
+    property <length> gui_h;
+
+    pure callback calc_pos(length, length, int) -> length;
+    pure callback calc_size(length, length, int) -> length;
+    calc_pos(origin, mouse, max_pos) => {
+        if (mouse > origin) {
+            return max(0px, min(origin, max_pos * 1px));
+        }
+        max(0px, min(mouse, max_pos * 1px))
+    }
+    calc_size(origin, mouse, max_size) => {
+        let size = (origin - mouse).abs();
+        max(0px, min(size, max_size * 1px - origin))
+    }
+
+    // update GUI window position if noise window changes
+    callback update_gui_window();
+    update_gui_window => {
+        self.gui_x = content.x_left + self.noise_x * content.scale / 1px;
+        self.gui_y = content.y_top + self.noise_y * content.scale / 1px;
+        self.gui_w = self.noise_w * content.scale / 1px;
+        self.gui_h = self.noise_h * content.scale / 1px;
+    }
+    changed noise_x => {
+        update_gui_window();
+    }
+    changed noise_y => {
+        update_gui_window();
+    }
+    changed noise_w => {
+        update_gui_window();
+    }
+    changed noise_h => {
+        update_gui_window();
+    }
+
     content := ContentWindow {
+        // select noise window
         changed ta_pressed => {
             if (self.ta_pressed) {
-                root.noise_x = self.ta_x;
-                root.noise_y = self.ta_y;
+                // button down updates the origin of the noise window
+                root.origin_noise_x = self.img_x;
+                root.origin_noise_y = self.img_y;
+                root.origin_gui_x = self.gui_x;
+                root.origin_gui_y = self.gui_y;
             } else {
-                root.noise_w = self.ta_x - root.noise_x;
-                root.noise_h = self.ta_y - root.noise_y;
+                // button up updates the noise window
+                root.noise_x = calc_pos(root.origin_noise_x, self.img_x, self.image.width);
+                root.noise_y = calc_pos(root.origin_noise_y, self.img_y, self.image.height);
+                root.noise_w = calc_size(root.origin_noise_x, self.img_x, self.image.width);
+                root.noise_h = calc_size(root.origin_noise_y, self.img_y, self.image.height);
             }
         }
     }
 
     noise := Rectangle {
-        x: root.noise_x;
-        y: root.noise_y;
-        width: content.ta_pressed ? content.ta_x - root.noise_x : root.noise_w;
-        height: content.ta_pressed ? content.ta_y - root.noise_y : root.noise_h;
+        x: content.ta_pressed ? calc_pos(root.origin_gui_x, content.gui_x, content.image.width) : root.gui_x;
+        y: content.ta_pressed ? calc_pos(root.origin_gui_y, content.gui_y, content.image.height) : root.gui_y;
+        width: content.ta_pressed ? calc_size(root.origin_gui_x, content.gui_x, content.image.width) : root.gui_w;
+        height: content.ta_pressed ? calc_size(root.origin_gui_y, content.gui_y, content.image.height) : root.gui_h;
         opacity: content.ta_pressed ? 0.7 : 0.2;
         background: black;
     }
