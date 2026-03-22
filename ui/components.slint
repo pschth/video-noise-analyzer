@@ -9,48 +9,48 @@ component ContentWindow inherits Rectangle {
     // actual cursor positions in the GUI
     out property <length> gui_x:
     {
-        max(self.x_left, min(self.x_right, ta.mouse-x))
+        max(self.gui_img_x1, min(self.gui_img_x2, ta.mouse-x))
     }
 
     out property <length> gui_y:
     {
-        max(self.y_top, min(self.y_bottom, ta.mouse-y))
+        max(self.gui_img_y1, min(self.gui_img_y2, ta.mouse-y))
     }
 
     // scaled positions that correspond to the real image size
     out property <length> img_x: {
-        ((ta.mouse-x - x_left) / scale).round() * 1px
+        max(0, min(((ta.mouse-x - gui_img_x1) / scale).round(), self.image.width)) * 1px
     }
     out property <length> img_y: {
-        ((ta.mouse-y - y_top) / scale).round() * 1px
+        max(0, min(((ta.mouse-y - gui_img_y1) / scale).round(), self.image.height)) * 1px
     }
 
     // limits TouchArea to image size
     out property <length> scale: {
         min(image.width / image.source.width, image.height / image.source.height);
     }
-    property <length> gui_image_width: {
+    out property <length> gui_img_w: {
         image.source.width * scale
     }
-    out property <length> x_left: {
-        image.x + (image.width - gui_image_width) / 2.0
+    out property <length> gui_img_x1: {
+        image.x + (image.width - gui_img_w) / 2.0
     }
-    property <length> x_right: {
-        x_left + gui_image_width
+    property <length> gui_img_x2: {
+        gui_img_x1 + gui_img_w
     }
-    property <length> gui_image_height: {
+    out property <length> gui_img_h: {
         image.source.height * scale
     }
-    out property <length> y_top: {
-        image.y + (image.height - gui_image_height) / 2.0
+    out property <length> gui_img_y1: {
+        image.y + (image.height - gui_img_h) / 2.0
     }
-    property <length> y_bottom: {
-        y_top + gui_image_height
+    property <length> gui_img_y2: {
+        gui_img_y1 + gui_img_h
     }
 
     pure callback in_image_boundary() -> bool;
     in_image_boundary() => {
-        ta.mouse-x >= x_left && ta.mouse-x <= x_right && ta.mouse-y >= y_top && ta.mouse-y <= y_bottom
+        ta.mouse-x >= gui_img_x1 && ta.mouse-x <= gui_img_x2 && ta.mouse-y >= gui_img_y1 && ta.mouse-y <= gui_img_y2
     }
 
     image := Image {
@@ -82,17 +82,37 @@ export component VideoWindow inherits Rectangle {
     in-out property <length> noise_w;
     in-out property <length> noise_h;
 
+    changed noise_x => {
+        self.noise_x = max(0, min(self.noise_x, content.image.width * 1px));
+        self.noise_w = max(0, min(self.noise_w, content.image.width * 1px - self.noise_x));
+    }
+    changed noise_y => {
+        self.noise_y = max(0, min(self.noise_y, content.image.height * 1px));
+        self.noise_h = max(0, min(self.noise_h, content.image.height * 1px - self.noise_y));
+    }
+    changed noise_w => {
+        self.noise_w = max(0, min(self.noise_w, content.image.width * 1px - self.noise_x));
+    }
+    changed noise_h => {
+        self.noise_h = max(0, min(self.noise_h, content.image.height * 1px - self.noise_y));
+    }
+
     property <length> origin_noise_x;
     property <length> origin_noise_y;
     property <length> origin_gui_x;
     property <length> origin_gui_y;
-    property <length> gui_x;
-    property <length> gui_y;
-    property <length> gui_w;
-    property <length> gui_h;
+
+    property <length> gui_x: content.gui_img_x1 + self.noise_x * content.scale / 1px;
+    property <length> gui_y: content.gui_img_y1 + self.noise_y * content.scale / 1px;
+    property <length> gui_w: self.noise_w * content.scale / 1px;
+    property <length> gui_h: self.noise_h * content.scale / 1px;
 
     pure callback calc_pos(length, length, int) -> length;
     pure callback calc_size(length, length, int) -> length;
+    pure callback calc_gui_x() -> length;
+    pure callback calc_gui_y() -> length;
+    pure callback calc_gui_w() -> length;
+    pure callback calc_gui_h() -> length;
     calc_pos(origin, mouse, max_pos) => {
         if (mouse > origin) {
             return max(0px, min(origin, max_pos * 1px));
@@ -101,28 +121,25 @@ export component VideoWindow inherits Rectangle {
     }
     calc_size(origin, mouse, max_size) => {
         let size = (origin - mouse).abs();
-        max(0px, min(size, max_size * 1px - origin))
+        if (max_size < 1) {
+            return max(0px, min(size, max_size * 1px));
+        }
+        if (mouse > origin) {
+            return max(0px, min(size, max_size * 1px - origin));
+        }
+        max(0px, min(size, max_size * 1px - mouse))
     }
-
-    // update GUI window position if noise window changes
-    callback update_gui_window();
-    update_gui_window => {
-        self.gui_x = content.x_left + self.noise_x * content.scale / 1px;
-        self.gui_y = content.y_top + self.noise_y * content.scale / 1px;
-        self.gui_w = self.noise_w * content.scale / 1px;
-        self.gui_h = self.noise_h * content.scale / 1px;
+    calc_gui_x() => {
+        content.gui_img_x1 + calc_pos(root.origin_noise_x, content.img_x, content.image.width) * content.scale / 1px;
     }
-    changed noise_x => {
-        update_gui_window();
+    calc_gui_y() => {
+        content.gui_img_y1 + calc_pos(root.origin_noise_y, content.img_y, content.image.height) * content.scale / 1px;
     }
-    changed noise_y => {
-        update_gui_window();
+    calc_gui_w() => {
+        calc_size(root.origin_noise_x, content.img_x, content.image.width) * content.scale / 1px;
     }
-    changed noise_w => {
-        update_gui_window();
-    }
-    changed noise_h => {
-        update_gui_window();
+    calc_gui_h() => {
+        calc_size(root.origin_noise_y, content.img_y, content.image.height) * content.scale / 1px;
     }
 
     content := ContentWindow {
@@ -145,10 +162,10 @@ export component VideoWindow inherits Rectangle {
     }
 
     noise := Rectangle {
-        x: content.ta_pressed ? calc_pos(root.origin_gui_x, content.gui_x, content.image.width) : root.gui_x;
-        y: content.ta_pressed ? calc_pos(root.origin_gui_y, content.gui_y, content.image.height) : root.gui_y;
-        width: content.ta_pressed ? calc_size(root.origin_gui_x, content.gui_x, content.image.width) : root.gui_w;
-        height: content.ta_pressed ? calc_size(root.origin_gui_y, content.gui_y, content.image.height) : root.gui_h;
+        x: content.ta_pressed ? calc_gui_x() : root.gui_x;
+        y: content.ta_pressed ? calc_gui_y() : root.gui_y;
+        width: content.ta_pressed ? calc_gui_w() : root.gui_w;
+        height: content.ta_pressed ? calc_gui_h() : root.gui_h;
         opacity: content.ta_pressed ? 0.7 : 0.2;
         background: black;
     }
@@ -232,6 +249,7 @@ export component InputTextBox inherits Rectangle {
     in property <InputType> input_type <=> t.input-type;
 
     callback accepted <=> t.accepted;
+    callback edited <=> t.edited;
 
     clip: true;
     height: 20px;
@@ -263,6 +281,7 @@ export component VideoInputBox inherits Rectangle {
     in property <InputType> input_type <=> box.input-type;
 
     callback accepted <=> box.accepted;
+    callback edited <=> box.edited;
 
     HorizontalLayout {
         vt := VideoText {
