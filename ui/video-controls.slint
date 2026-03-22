@@ -152,11 +152,13 @@ component ThirdRow inherits HorizontalLayout {
 }
 
 component FourthRow inherits HorizontalLayout {
-    VerticalLayout {
+    in property <float> temporal_noise;
+    in property <float> fixed_pattern_noise;
 
+    VerticalLayout {
         HorizontalLayout {
             Rectangle {
-                height: 20px;
+                height: 10px;
             }
         }
 
@@ -167,7 +169,7 @@ component FourthRow inherits HorizontalLayout {
             }
 
             temporal_noise := MetricText {
-                text: "xx";
+                text: root.temporal_noise;
             }
 
             MetricText {
@@ -175,7 +177,13 @@ component FourthRow inherits HorizontalLayout {
             }
 
             fixed_pattern_noise := MetricText {
-                text: "xx";
+                text: root.fixed_pattern_noise;
+            }
+        }
+
+        HorizontalLayout {
+            Rectangle {
+                height: 10px;
             }
         }
     }
@@ -202,6 +210,9 @@ export component VideoControls inherits HorizontalLayout {
     in-out property <length> noise_y <=> third_row.noise_y;
     in-out property <length> noise_h <=> third_row.noise_h;
     in-out property <length> noise_w <=> third_row.noise_w;
+
+    in property <float> temporal_noise <=> fourth_row.temporal_noise;
+    in property <float> fixed_pattern_noise <=> fourth_row.fixed_pattern_noise;
 
     VerticalLayout {
         first_row := FirstRow { }

@@ -4,19 +4,26 @@ import { VideoWindow } from "components.slint";
 
 export component App inherits Window {
 
-    in property <[string]> video_sources <=> controls.video_sources;
-    in-out property <int> current_video_source <=> controls.curr_video_source;
-    in property <[string]> framerates <=> controls.fps;
     in-out property <int> curr_fps <=> controls.curr_fps;
+    in-out property <int> current_video_source <=> controls.curr_video_source;
+    in-out property <string> output_dir <=> controls.output_dir;
+
+    in property <[string]> video_sources <=> controls.video_sources;
+    in property <[string]> framerates <=> controls.fps;
     in property <image> video-frame <=> image.video-frame;
     in property <bool> playing <=> controls.playing;
+    in property <float> temporal_noise;
+    in property <float> fixed_pattern_noise;
+
+    out property <int> noise_x: v.noise_x / 1px;
+    out property <int> noise_y: v.noise_y / 1px;
+    out property <int> noise_w: v.noise_w / 1px;
+    out property <int> noise_h: v.noise_h / 1px;
 
     pure callback toggle-play-pause <=> controls.toggle-play-pause;
     pure callback take-screenshot <=> controls.take-screenshot;
     callback selected-video-source <=> controls.selected-video-source;
     callback selected-framerate <=> controls.selected-framerate;
-
-    in-out property <string> output_dir <=> controls.output_dir;
 
     callback choose-output-dir <=> controls.choose-output-dir;
 
@@ -49,6 +56,18 @@ export component App inherits Window {
             noise_y <=> parent.noise_y;
             noise_w <=> parent.noise_w;
             noise_h <=> parent.noise_h;
+            temporal_noise: {
+                if (self.noise_w == 0 || self.noise_h == 0 || !root.playing) {
+                    0
+                }
+                root.temporal_noise
+            }
+            fixed_pattern_noise: {
+                if (self.noise_w == 0 || self.noise_h == 0 || !root.playing) {
+                    0
+                }
+                root.fixed_pattern_noise
+            }
         }
     }
 }

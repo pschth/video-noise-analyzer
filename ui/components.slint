@@ -167,8 +167,10 @@ export component VideoWindow inherits HorizontalLayout {
             y: content.ta_pressed ? calc_gui_y() : root.gui_y;
             width: content.ta_pressed ? calc_gui_w() : root.gui_w;
             height: content.ta_pressed ? calc_gui_h() : root.gui_h;
-            opacity: content.ta_pressed ? 0.7 : 0.2;
-            background: black;
+            border-color: red;
+            border-width: 2px;
+            opacity: 0.7;
+            background: transparent;
         }
     }
 }
