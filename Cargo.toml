@@ -11,6 +11,7 @@ thiserror = "2.0.17"
 chrono = "0.4.44"
 rfd = "0.17.2"
 v4l = "0.14"
+ndarray = "0.17.2"
 
 
 gst = { package = "gstreamer", version = "0.23.0" }

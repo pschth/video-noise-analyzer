@@ -5,6 +5,7 @@ use rfd::FileDialog;
 use slint::{ComponentHandle, ModelRc, SharedString, VecModel};
 use thiserror::Error;
 
+use crate::image_pipeline::noise::Noise;
 use crate::image_pipeline::{frame_handler::FrameHandler, gstreamer::ImagePipeline};
 
 use crate::App;
@@ -46,6 +47,7 @@ impl App {
         ui.init_on_selected_video_source(pipe.clone(), &image_pipeline);
         ui.init_on_selected_framerate(pipe.clone(), &image_pipeline);
         ui.init_on_choose_output_dir();
+        ui.start_noise_calculation(fh.clone());
     }
 
     fn init_on_toggle_play_pause(self: &Arc<App>, pipe: Arc<Pipeline>, fh: Arc<FrameHandler>) {
@@ -122,5 +124,9 @@ impl App {
             .map(|s| s.into())
             .collect();
         ui.set_framerates(ModelRc::new(available_framerates));
+    }
+
+    fn start_noise_calculation(self: Arc<App>, fh: Arc<FrameHandler>) {
+        Noise::new(self, fh).expect("Could not start noise calculation.");
     }
 }

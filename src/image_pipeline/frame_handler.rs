@@ -1,13 +1,16 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        mpsc::{self, Receiver},
+        Arc, Mutex,
+    },
 };
 
 use chrono::prelude::*;
 use gst::{glib::object::Cast, prelude::GstBinExt};
-use image::RgbImage;
-use slint::{Image, Weak};
+use image::{Rgb, RgbImage};
+use slint::{Image, Rgb8Pixel, SharedPixelBuffer, Weak};
 
 use crate::App;
 
@@ -15,6 +18,7 @@ use crate::App;
 pub struct FrameHandler {
     cat: Image,
     ui: Arc<Weak<App>>,
+    pub frame_rx: Arc<Mutex<Receiver<SharedPixelBuffer<Rgb8Pixel>>>>,
 }
 
 // handles the display of frames in the GUI window
@@ -28,7 +32,7 @@ impl FrameHandler {
         };
 
         let ui = Arc::new(ui);
-        Self::register_frame_callback(pipeline, ui.clone(), new_frame_callback)
+        let rx = Self::register_frame_callback(pipeline, ui.clone(), new_frame_callback)
             .expect("Failed to register new frame callback");
 
         // load pause image (cat)
@@ -37,7 +41,11 @@ impl FrameHandler {
             panic!("No cat found. Terrible!");
         };
 
-        FrameHandler { cat, ui }
+        FrameHandler {
+            cat,
+            ui,
+            frame_rx: Arc::new(Mutex::new(rx)),
+        }
     }
 
     pub fn display_pause_image(&self) {
@@ -83,13 +91,14 @@ impl FrameHandler {
         pipeline: &gst::Pipeline,
         ui: Arc<Weak<AppHandle>>,
         new_frame_cb: fn(AppHandle, Image),
-    ) -> Result<(), ()> {
+    ) -> Result<Receiver<SharedPixelBuffer<Rgb8Pixel>>, ()> {
         let sink = pipeline
             .by_name("appsink0")
             .expect("Could not find appsink element in pipeline.")
             .downcast::<gst_app::AppSink>()
             .expect("Could not downcast Element to AppSink.");
 
+        let (tx, rx) = mpsc::channel::<SharedPixelBuffer<Rgb8Pixel>>();
         sink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
                 .new_sample(move |appsink| {
@@ -110,22 +119,23 @@ impl FrameHandler {
 
                     // Create an Image from the raw RGB data
                     let video_info = gst_video::VideoInfo::from_caps(sample.caps().unwrap()).unwrap();
-                    let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::clone_from_slice(
-                        data,
-                        video_info.width(),
-                        video_info.height(),
-                    );
+                    let pixel_buffer =
+                        SharedPixelBuffer::<Rgb8Pixel>::clone_from_slice(data, video_info.width(), video_info.height());
 
+                    let buf_clone = pixel_buffer.clone();
                     ui.upgrade_in_event_loop(move |ui| {
-                        new_frame_cb(ui, Image::from_rgb8(pixel_buffer));
+                        new_frame_cb(ui, Image::from_rgb8(buf_clone));
                     })
                     .expect("Could not upgrade UI in event loop.");
+
+                    // send signal that new frame is ready
+                    tx.send(pixel_buffer).expect("Sending new frame signal failed.");
 
                     Ok(gst::FlowSuccess::Ok)
                 })
                 .build(),
         );
-        Ok(())
+        Ok(rx)
     }
 }
 

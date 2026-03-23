@@ -175,17 +175,10 @@ export component VideoWindow inherits HorizontalLayout {
     }
 }
 
-export component VideoComboBox inherits Rectangle {
-    background: transparent;
-
-    in-out property <int> current-index <=> cb.current-index;
-
-    callback selected <=> cb.selected;
-
+export component VideoComboBox inherits ComboBox {
     in property <[string]> options;
-    cb := ComboBox {
-        model: options;
-    }
+
+    model: options;
 }
 
 export component VideoText inherits Text {

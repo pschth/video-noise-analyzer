@@ -92,6 +92,7 @@ component ThirdRow inherits HorizontalLayout {
     in-out property <length> noise_y: y.val.to-float() * 1px;
     in-out property <length> noise_w: w.val.to-float() * 1px;
     in-out property <length> noise_h: h.val.to-float() * 1px;
+    in-out property <int> number_of_frames: f.val.to-float().round();
 
     changed noise_x => {
         x.val = noise_x / 1px;
@@ -146,6 +147,16 @@ component ThirdRow inherits HorizontalLayout {
             input_type: number;
             edited => {
                 root.noise_h = self.val.to-float() * 1px;
+            }
+        }
+
+        f := VideoInputBox {
+            name: "frames:";
+            boxwidth: 20mm;
+            val: 50;
+            input_type: number;
+            edited => {
+                root.number_of_frames = self.val.to-float().round();
             }
         }
     }
@@ -210,6 +221,7 @@ export component VideoControls inherits HorizontalLayout {
     in-out property <length> noise_y <=> third_row.noise_y;
     in-out property <length> noise_h <=> third_row.noise_h;
     in-out property <length> noise_w <=> third_row.noise_w;
+    in-out property <int> number_of_frames <=> third_row.number_of_frames;
 
     in property <float> temporal_noise <=> fourth_row.temporal_noise;
     in property <float> fixed_pattern_noise <=> fourth_row.fixed_pattern_noise;
