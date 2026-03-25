@@ -21,6 +21,19 @@ export component App inherits Window {
     out property <int> noise_w: v.noise_w / 1px;
     out property <int> noise_h: v.noise_h / 1px;
 
+    changed current_video_source => {
+        v.noise_x = 0;
+        v.noise_y = 0;
+        v.noise_w = 0;
+        v.noise_h = 0;
+    }
+    changed playing => {
+        v.noise_x = 0;
+        v.noise_y = 0;
+        v.noise_w = 0;
+        v.noise_h = 0;
+    }
+
     pure callback toggle-play-pause <=> controls.toggle-play-pause;
     pure callback take-screenshot <=> controls.take-screenshot;
     callback selected-video-source <=> controls.selected-video-source;
