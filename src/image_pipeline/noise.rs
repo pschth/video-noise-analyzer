@@ -1,12 +1,11 @@
 use std::{
-    ops::Mul,
-    sync::{mpsc, Arc, Mutex},
+    sync::{mpsc, Arc},
     thread,
 };
 
 use crate::{image_pipeline::frame_handler::FrameHandler, App};
 
-use ndarray::{prelude::*, OwnedRepr, Shape, ViewRepr};
+use ndarray::prelude::*;
 use slint::{ComponentHandle, Rgb8Pixel, SharedPixelBuffer, Weak};
 
 pub(crate) struct Noise {
