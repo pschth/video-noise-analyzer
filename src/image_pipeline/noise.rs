@@ -1,4 +1,5 @@
 use std::{
+    ops::Mul,
     sync::{mpsc, Arc, Mutex},
     thread,
 };
@@ -22,12 +23,25 @@ struct NoiseConfig {
     n_frames: usize,
 }
 
-type NoiseWindow = Array3<u8>;
-type NoiseWindowStack = Array4<u8>;
+#[derive(Debug)]
+struct FixedPatternNoise {
+    fpn: f32,
+    row: f32,
+    col: f32,
+}
+
+type NoiseWindow = Array2<f32>;
+type NoiseWindowStack = Array3<f32>;
 
 impl From<NoiseConfig> for NoiseWindowStack {
     fn from(value: NoiseConfig) -> Self {
-        Self::zeros((value.w, value.h, 3, value.n_frames))
+        Self::zeros((value.h, value.w, value.n_frames))
+    }
+}
+
+impl NoiseConfig {
+    fn is_valid(&self) -> bool {
+        self.w > 0 && self.h > 0 && self.n_frames > 0
     }
 }
 
@@ -53,6 +67,10 @@ impl Noise {
                 .expect("Unable to receive new frame signal.");
 
             let noise_cfg = Self::get_window_dims(&ui_weak).expect("Did not get noise window dimensions.");
+            if !noise_cfg.is_valid() {
+                continue;
+            }
+
             // reset noise window stack if noise config changed
             if noise_cfg != curr_noise_cfg {
                 curr_noise_cfg = noise_cfg;
@@ -62,15 +80,13 @@ impl Noise {
 
             // write window into window stack
             win_stack
-                .slice_mut(s![.., .., .., iter_idx])
+                .slice_mut(s![.., .., iter_idx])
                 .assign(&Self::slice_out_window(pixbuf, &noise_cfg).expect("Could not retrieve noise window."));
             iter_idx = (iter_idx + 1) % curr_noise_cfg.n_frames;
 
-            if win_stack.shape().iter().all(|&e| e > 0) {
-                println!(
-                    "Sum of red pixels: {}",
-                    win_stack.slice(s![0, 0, 0, ..]).mapv(|v| v as u64).sum()
-                );
+            // calculate noise metrics for each full window stack
+            if iter_idx == 0 {
+                Self::update_noise_metrics(win_stack.clone(), ui_weak.clone());
             }
         };
 
@@ -97,19 +113,62 @@ impl Noise {
     // queries noise window dimensions from GUI and slices out the window from the provided pixbuf
     fn slice_out_window(pixbuf: SharedPixelBuffer<Rgb8Pixel>, noise_win: &NoiseConfig) -> Result<NoiseWindow, ()> {
         // convert into Array
-        let arr = NoiseWindow::from_shape_vec(
-            (pixbuf.width() as usize, pixbuf.height() as usize, 3),
+        let arr = Array3::<u8>::from_shape_vec(
+            (pixbuf.height() as usize, pixbuf.width() as usize, 3 as usize),
             pixbuf.as_bytes().to_vec(),
         )
         .expect("Could not convert pixel buffer to ArrayView.");
+        let arr = arr.mapv(|v| v as f32);
 
-        // slice out and return noise window
+        // slice out and return noise window and convert to luminance
         let noise_x_end = (noise_win.x + noise_win.w) as usize;
         let noise_y_end = (noise_win.y + noise_win.h) as usize;
-        if arr.shape()[0] < noise_x_end || arr.shape()[1] < noise_y_end {
+        if arr.shape()[0] < noise_y_end || arr.shape()[1] < noise_x_end {
             eprintln!("Noise window too large for input image.");
             return Err(());
         }
-        Ok(arr.slice_move(s![noise_win.x..noise_x_end, noise_win.y..noise_y_end, ..]))
+
+        let red = arr.slice(s![noise_win.y..noise_y_end, noise_win.x..noise_x_end, 0]);
+        let green = arr.slice(s![noise_win.y..noise_y_end, noise_win.x..noise_x_end, 1]);
+        let blue = arr.slice(s![noise_win.y..noise_y_end, noise_win.x..noise_x_end, 2]);
+
+        // Y conversion according to BT.601
+        Ok(0.299 * &red + 0.587 * &green + 0.114 * &blue)
+    }
+
+    // calculates noise metrics and updates GUI values in a separate thread
+    fn update_noise_metrics(win_stack: NoiseWindowStack, ui: Weak<App>) {
+        thread::spawn(move || {
+            let fpn = Self::calc_fixed_pattern_noise(&win_stack);
+            let tn = Self::calc_temporal_noise(&win_stack);
+            ui.upgrade_in_event_loop(move |ui| {
+                ui.set_fixed_pattern_noise(fpn.fpn);
+                ui.set_temporal_noise(tn);
+            })
+            .expect("UI could not be upgraded.");
+        });
+    }
+
+    fn calc_fixed_pattern_noise(win_stack: &NoiseWindowStack) -> FixedPatternNoise {
+        let temporal_mean = win_stack.mean_axis(Axis(2)).expect("Temporal mean calculation failed.");
+
+        let fpn = temporal_mean.std(0.0);
+        let row = win_stack
+            .mean_axis(Axis(1))
+            .expect("Calculating column mean failed.")
+            .std(0.0);
+        let col = win_stack
+            .mean_axis(Axis(0))
+            .expect("Calculating row mean failed.")
+            .std(0.0);
+
+        FixedPatternNoise { fpn, row, col }
+    }
+
+    fn calc_temporal_noise(win_stack: &NoiseWindowStack) -> f32 {
+        let temporal_std = win_stack.std_axis(Axis(2), 0.0);
+        temporal_std
+            .mean()
+            .expect("Mean of temporal std could not be calculated.")
     }
 }
