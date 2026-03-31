@@ -156,7 +156,7 @@ component ThirdRow inherits HorizontalLayout {
             val: 50;
             input_type: number;
             edited => {
-                root.number_of_frames = self.val.to-float().round();
+                root.number_of_frames = self.val == 0 ? 1 : self.val.to-float().round();
             }
         }
     }
@@ -168,6 +168,8 @@ component MetricGrid inherits HorizontalLayout {
     in property <float> noise_framecount;
     in property <float> row_noise;
     in property <float> column_noise;
+
+    in property <int> max_frames;
 
     min-height: 60px;
     GridLayout {
@@ -183,7 +185,7 @@ component MetricGrid inherits HorizontalLayout {
             }
 
             MetricText {
-                text: "Frame: " + root.noise_framecount;
+                text: "Frame: " + root.noise_framecount + " / " + root.max_frames;
             }
         }
 
@@ -235,6 +237,8 @@ export component VideoControls inherits HorizontalLayout {
 
         third_row := ThirdRow { }
 
-        fourth_row := MetricGrid { }
+        fourth_row := MetricGrid {
+            max_frames: root.number_of_frames;
+        }
     }
 }

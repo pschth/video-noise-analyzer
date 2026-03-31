@@ -1,5 +1,8 @@
 use std::{
-    sync::{mpsc, Arc},
+    sync::{
+        mpsc::{self, Receiver},
+        Arc,
+    },
     thread,
 };
 
@@ -54,45 +57,51 @@ impl Noise {
     }
 
     fn start_calculation(&self) {
-        let new_frame_rx = self.fh.frame_rx.clone();
         let ui_weak = self.ui.as_weak();
-        let mut curr_noise_cfg = NoiseConfig::default();
-        let mut win_stack = NoiseWindowStack::from(curr_noise_cfg);
-        let mut iter_idx = 0;
+        let new_frame_rx = self.fh.frame_rx.clone();
+        let (win_stack_tx, win_stack_rx) = mpsc::channel::<NoiseWindowStack>();
 
-        let mut calculation_loop = move || loop {
-            let pixbuf = new_frame_rx
-                .lock()
-                .expect("Locking new frame signal failed.")
-                .recv()
-                .expect("Unable to receive new frame signal.");
+        Self::start_noise_metric_calculation_loop(win_stack_rx, ui_weak.clone());
 
-            let noise_cfg = Self::get_window_dims(&ui_weak).expect("Did not get noise window dimensions.");
-            if !noise_cfg.is_valid() {
-                continue;
-            }
+        let calculation_loop = move || {
+            let mut curr_noise_cfg = Self::get_window_dims(&ui_weak).expect("Did not get noise window dimensions.");
 
-            // reset noise window stack if noise config changed
-            if noise_cfg != curr_noise_cfg {
-                curr_noise_cfg = noise_cfg;
-                win_stack = NoiseWindowStack::from(curr_noise_cfg);
-                iter_idx = 0;
-            }
+            loop {
+                let mut win_stack = NoiseWindowStack::from(curr_noise_cfg);
+                let mut iter_idx = 0;
+                while iter_idx < curr_noise_cfg.n_frames {
+                    // wait for new frame
+                    let pixbuf = new_frame_rx
+                        .lock()
+                        .expect("Locking new frame signal failed.")
+                        .recv()
+                        .expect("Unable to receive new frame signal.");
 
-            // update noise frame count
-            ui_weak
-                .upgrade_in_event_loop(move |ui| ui.set_noise_framecount(iter_idx as f32 + 1.0))
-                .expect("Upgrading UI failed.");
+                    let noise_cfg = Self::get_window_dims(&ui_weak).expect("Did not get noise window dimensions.");
+                    if !noise_cfg.is_valid() {
+                        continue;
+                    }
 
-            // write window into window stack
-            win_stack
-                .slice_mut(s![.., .., iter_idx])
-                .assign(&Self::slice_out_window(pixbuf, &noise_cfg).expect("Could not retrieve noise window."));
-            iter_idx = (iter_idx + 1) % curr_noise_cfg.n_frames;
+                    // reset noise window stack if noise config changed
+                    if noise_cfg != curr_noise_cfg {
+                        curr_noise_cfg = noise_cfg;
+                        win_stack = NoiseWindowStack::from(curr_noise_cfg);
+                        iter_idx = 0;
+                    }
 
-            // calculate noise metrics for each full window stack
-            if iter_idx == 0 {
-                Self::update_noise_metrics(win_stack.clone(), ui_weak.clone());
+                    // update noise frame count
+                    ui_weak
+                        .upgrade_in_event_loop(move |ui| ui.set_noise_framecount(iter_idx as f32 + 1.0))
+                        .expect("Upgrading UI failed.");
+
+                    // write window into window stack
+                    win_stack
+                        .slice_mut(s![.., .., iter_idx])
+                        .assign(&Self::slice_out_window(pixbuf, &noise_cfg).expect("Could not retrieve noise window."));
+                    iter_idx += 1;
+                }
+                // calculate noise metrics for each full window stack
+                win_stack_tx.send(win_stack).unwrap();
             }
         };
 
@@ -143,8 +152,9 @@ impl Noise {
     }
 
     // calculates noise metrics and updates GUI values in a separate thread
-    fn update_noise_metrics(win_stack: NoiseWindowStack, ui: Weak<App>) {
-        thread::spawn(move || {
+    fn start_noise_metric_calculation_loop(win_stack_rx: Receiver<NoiseWindowStack>, ui: Weak<App>) {
+        thread::spawn(move || loop {
+            let win_stack = win_stack_rx.recv().unwrap();
             let fpn = Self::calc_fixed_pattern_noise(&win_stack);
             let tn = Self::calc_temporal_noise(&win_stack);
             ui.upgrade_in_event_loop(move |ui| {

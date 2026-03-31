@@ -9,7 +9,7 @@ use std::{
 
 use chrono::prelude::*;
 use gst::{glib::object::Cast, prelude::GstBinExt};
-use image::{Rgb, RgbImage};
+use image::RgbImage;
 use slint::{Image, Rgb8Pixel, SharedPixelBuffer, Weak};
 
 use crate::App;
