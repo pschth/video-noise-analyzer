@@ -162,39 +162,38 @@ component ThirdRow inherits HorizontalLayout {
     }
 }
 
-component FourthRow inherits HorizontalLayout {
+component MetricGrid inherits HorizontalLayout {
     in property <float> temporal_noise;
     in property <float> fixed_pattern_noise;
+    in property <float> noise_framecount;
+    in property <float> row_noise;
+    in property <float> column_noise;
 
-    VerticalLayout {
-        HorizontalLayout {
-            Rectangle {
-                height: 10px;
-            }
-        }
-
-        HorizontalLayout {
-            alignment: start;
+    min-height: 60px;
+    GridLayout {
+        padding-bottom: 10px;
+        padding-top: 10px;
+        Row {
             MetricText {
-                text: "Temporal noise: ";
-            }
-
-            temporal_noise := MetricText {
-                text: root.temporal_noise;
+                text: "Temporal noise: " + (root.temporal_noise * 1000).round() / 1000;
             }
 
             MetricText {
-                text: "Fixed pattern noise: ";
+                text: "Fixed pattern noise: " + (root.fixed_pattern_noise * 1000).round() / 1000;
             }
 
-            fixed_pattern_noise := MetricText {
-                text: root.fixed_pattern_noise;
+            MetricText {
+                text: "Frame: " + root.noise_framecount;
             }
         }
 
-        HorizontalLayout {
-            Rectangle {
-                height: 10px;
+        Row {
+            MetricText {
+                text: "Row noise: " + (root.row_noise * 1000).round() / 1000;
+            }
+
+            MetricText {
+                text: "Column noise: " + (root.column_noise * 1000).round() / 1000;
             }
         }
     }
@@ -225,6 +224,9 @@ export component VideoControls inherits HorizontalLayout {
 
     in property <float> temporal_noise <=> fourth_row.temporal_noise;
     in property <float> fixed_pattern_noise <=> fourth_row.fixed_pattern_noise;
+    in property <float> noise_framecount <=> fourth_row.noise_framecount;
+    in property <float> row_noise <=> fourth_row.row_noise;
+    in property <float> column_noise <=> fourth_row.column_noise;
 
     VerticalLayout {
         first_row := FirstRow { }
@@ -233,6 +235,6 @@ export component VideoControls inherits HorizontalLayout {
 
         third_row := ThirdRow { }
 
-        fourth_row := FourthRow { }
+        fourth_row := MetricGrid { }
     }
 }

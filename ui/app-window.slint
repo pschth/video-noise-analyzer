@@ -15,6 +15,9 @@ export component App inherits Window {
     in property <bool> playing <=> controls.playing;
     in property <float> temporal_noise;
     in property <float> fixed_pattern_noise;
+    in property <float> noise_framecount;
+    in property <float> row_noise;
+    in property <float> column_noise;
 
     out property <int> noise_x: v.noise_x / 1px;
     out property <int> noise_y: v.noise_y / 1px;
@@ -81,6 +84,24 @@ export component App inherits Window {
                     0
                 }
                 root.fixed_pattern_noise
+            }
+            noise_framecount: {
+                if (self.noise_w == 0 || self.noise_h == 0 || !root.playing) {
+                    0
+                }
+                root.noise_framecount
+            }
+            row_noise: {
+                if (self.noise_w == 0 || self.noise_h == 0 || !root.playing) {
+                    0
+                }
+                root.row_noise
+            }
+            column_noise: {
+                if (self.noise_w == 0 || self.noise_h == 0 || !root.playing) {
+                    0
+                }
+                root.column_noise
             }
         }
     }

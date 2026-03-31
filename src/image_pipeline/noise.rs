@@ -29,6 +29,8 @@ struct FixedPatternNoise {
     col: f32,
 }
 
+struct TemporalNoise(f32);
+
 type NoiseWindow = Array2<f32>;
 type NoiseWindowStack = Array3<f32>;
 
@@ -76,6 +78,11 @@ impl Noise {
                 win_stack = NoiseWindowStack::from(curr_noise_cfg);
                 iter_idx = 0;
             }
+
+            // update noise frame count
+            ui_weak
+                .upgrade_in_event_loop(move |ui| ui.set_noise_framecount(iter_idx as f32 + 1.0))
+                .expect("Upgrading UI failed.");
 
             // write window into window stack
             win_stack
@@ -141,8 +148,10 @@ impl Noise {
             let fpn = Self::calc_fixed_pattern_noise(&win_stack);
             let tn = Self::calc_temporal_noise(&win_stack);
             ui.upgrade_in_event_loop(move |ui| {
+                ui.set_temporal_noise(tn.0);
                 ui.set_fixed_pattern_noise(fpn.fpn);
-                ui.set_temporal_noise(tn);
+                ui.set_row_noise(fpn.row);
+                ui.set_column_noise(fpn.col);
             })
             .expect("UI could not be upgraded.");
         });
@@ -164,10 +173,12 @@ impl Noise {
         FixedPatternNoise { fpn, row, col }
     }
 
-    fn calc_temporal_noise(win_stack: &NoiseWindowStack) -> f32 {
+    fn calc_temporal_noise(win_stack: &NoiseWindowStack) -> TemporalNoise {
         let temporal_std = win_stack.std_axis(Axis(2), 0.0);
-        temporal_std
-            .mean()
-            .expect("Mean of temporal std could not be calculated.")
+        TemporalNoise(
+            temporal_std
+                .mean()
+                .expect("Mean of temporal std could not be calculated."),
+        )
     }
 }
