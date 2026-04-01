@@ -76,8 +76,15 @@ impl App {
                 if ImagePipeline::set_video_resolution(pipeline_arc.as_ref(), selected_idx, caps_arc.clone()).is_err() {
                     eprintln!("Failed to set video properties for selected source.");
                 };
+
                 // reset framerate to first index when changing the resolution
                 ui.set_curr_fps(0);
+                let framerates = caps_arc.lock().unwrap().get_current_framerates_as_strings();
+                let framerates: VecModel<SharedString> = framerates.iter().map(|f| f.into()).collect();
+                ui.set_framerates(ModelRc::new(framerates));
+                if ImagePipeline::set_framerate(pipeline_arc.as_ref(), 0, caps_arc.clone()).is_err() {
+                    eprintln!("Failed to set video properties for selected source.");
+                };
             }
         });
     }

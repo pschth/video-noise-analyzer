@@ -16,7 +16,7 @@ pub struct RawSourceCaps {
 #[derive(Debug, Clone)]
 pub struct RawSourceCap {
     pub resolution: Resolution,
-    framerates: gst::List,
+    framerates: Vec<gst::Fraction>,
     device_path: String,
 }
 
@@ -100,10 +100,7 @@ impl RawSourceCaps {
         curr_cap
             .framerates
             .iter()
-            .map(|f| {
-                let frac = f.get::<gst::Fraction>().unwrap();
-                String::from(format!("{}/{}", frac.numer(), frac.denom()))
-            })
+            .map(|f| String::from(format!("{}/{}", f.numer(), f.denom())))
             .collect()
     }
 
@@ -118,10 +115,7 @@ impl RawSourceCaps {
                 GstError::InvalidValue
             })?;
 
-        framerate.get::<gst::Fraction>().map_err(|_| {
-            println!("Could not convert framerate from device capabilities.");
-            GstError::NoCapsFound
-        })
+        Ok(framerate.clone())
     }
 
     /// Returns the currently active resolution.
@@ -165,13 +159,23 @@ impl RawSourceCaps {
 
                     let width = caps.get::<i32>("width");
                     let height = caps.get::<i32>("height");
+                    // framerates are either a single fraction or a list of fractions
                     let framerates = caps.get::<gst::List>("framerate");
+                    let framerates: Vec<gst::Fraction> = if framerates.is_err() {
+                        vec![caps
+                            .get::<gst::Fraction>("framerate")
+                            .expect("No framerate fraction found.")]
+                    } else {
+                        framerates
+                            .unwrap()
+                            .iter()
+                            .map(|f| f.get::<gst::Fraction>().unwrap())
+                            .collect()
+                    };
 
-                    if let (Ok(width), Ok(height), Ok(framerates)) = (width, height, framerates) {
+                    if let (Ok(width), Ok(height)) = (width, height) {
                         let resolution = Resolution { width, height };
-                        let fr: Vec<gst::Fraction> =
-                            framerates.iter().map(|f| f.get::<gst::Fraction>().unwrap()).collect();
-                        println!("Resolution: {}, framerates: {:?}", &resolution, fr);
+                        println!("Resolution: {}, framerates: {:?}", &resolution, &framerates);
                         let device_cap = RawSourceCap {
                             resolution,
                             framerates,
