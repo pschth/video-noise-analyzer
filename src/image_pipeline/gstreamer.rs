@@ -1,6 +1,10 @@
 use std::sync::{atomic::AtomicBool, Arc, Mutex, MutexGuard};
 
-use gst::{prelude::*, State};
+use gst::{
+    event::{FlushStart, FlushStop, Reconfigure},
+    prelude::*,
+    State,
+};
 use thiserror::Error;
 
 use crate::image_pipeline::{device_caps::RawSourceCaps, frame_handler::FrameHandler};
@@ -111,7 +115,7 @@ impl ImagePipeline {
 
     /// sets the pipeline to the given state
     pub fn set_state(&self, state: gst::State) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
-        self.pipeline.set_state(state)
+        set_current_state(&self.pipeline, state)
     }
 
     pub fn set_state_cb(
@@ -134,19 +138,9 @@ impl ImagePipeline {
         }
     }
 
-    /// gets the current state of the pipeline (playing, paused, etc.)
-    fn get_current_state(pipeline: &gst::Pipeline) -> State {
-        let (ret, state, pending) = pipeline.state(None);
-        if ret.is_err() {
-            eprintln!("State change failed. Continuing anyway.")
-        }
-        println!("Current state: {state:?}, pending state: {pending:?}.");
-        state
-    }
-
     /// toggles between play and pause states of the pipeline
     pub fn toggle_play_pause(pipeline: &gst::Pipeline, frame_handler: &FrameHandler) -> State {
-        match Self::get_current_state(pipeline) {
+        match get_current_state(pipeline) {
             State::Playing => {
                 if Self::set_state_cb(pipeline, frame_handler, State::Paused).is_err() {
                     eprintln!("Failed to pause video.");
@@ -198,16 +192,42 @@ fn update_video_settings(
         .set_property("device", &caps_guard.get_current_device_path());
 
     let new_res = caps_guard.get_current_resolution();
+    let fr = caps_guard.get_current_framerate()?;
+    println!("Currently selected framerate: {fr:?}");
     let pipeline_caps = gst::Caps::builder("video/x-raw")
         .field("width", new_res.width)
         .field("height", new_res.height)
-        .field("framerate", caps_guard.get_current_framerate()?)
+        .field("framerate", fr)
         .build();
+
+    pipeline.send_event(FlushStart::new());
+    pipeline.send_event(FlushStop::new(true));
 
     pipeline
         .by_name("filter")
         .ok_or(GstError::ElementNotFound)?
         .set_property("caps", &pipeline_caps);
 
+    pipeline.send_event(Reconfigure::new());
+
     Ok(())
+}
+
+/// gets the current state of the pipeline (playing, paused, etc.)
+#[inline]
+fn get_current_state(pipeline: &gst::Pipeline) -> State {
+    let (ret, state, pending) = pipeline.state(None);
+    if ret.is_err() {
+        eprintln!("State change failed. Continuing anyway.")
+    }
+    println!("Current state: {state:?}, pending state: {pending:?}.");
+    state
+}
+
+/// sets the pipeline to the given state
+fn set_current_state(
+    pipeline: &gst::Pipeline,
+    state: gst::State,
+) -> Result<gst::StateChangeSuccess, gst::StateChangeError> {
+    pipeline.set_state(state)
 }
